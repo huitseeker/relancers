@@ -64,7 +64,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "binius_compute"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "binius_field",
  "binius_math",
@@ -78,7 +78,7 @@ dependencies = [
 [[package]]
 name = "binius_core"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "assert_matches",
  "auto_impl",
@@ -112,7 +112,7 @@ dependencies = [
 [[package]]
 name = "binius_fast_compute"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "binius_compute",
  "binius_field",
@@ -131,7 +131,7 @@ dependencies = [
 [[package]]
 name = "binius_field"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "binius_maybe_rayon",
  "binius_utils",
@@ -151,7 +151,7 @@ dependencies = [
 [[package]]
 name = "binius_hal"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "binius_field",
  "binius_math",
@@ -167,7 +167,7 @@ dependencies = [
 [[package]]
 name = "binius_hash"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "binius_field",
  "binius_maybe_rayon",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "binius_macros"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -195,7 +195,7 @@ dependencies = [
 [[package]]
 name = "binius_math"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "auto_impl",
  "binius_field",
@@ -218,7 +218,7 @@ dependencies = [
 [[package]]
 name = "binius_maybe_rayon"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "cfg-if",
  "either",
@@ -228,7 +228,7 @@ dependencies = [
 [[package]]
 name = "binius_ntt"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "binius_field",
  "binius_math",
@@ -243,7 +243,7 @@ dependencies = [
 [[package]]
 name = "binius_utils"
 version = "0.2.0"
-source = "git+https://github.com/IrreducibleOSS/binius.git#1b09443bbb08b13e0116be81ab09742589aed267"
+source = "git+https://github.com/IrreducibleOSS/binius.git?rev=1b09443bbb08b13e0116be81ab09742589aed267#1b09443bbb08b13e0116be81ab09742589aed267"
 dependencies = [
  "auto_impl",
  "binius_maybe_rayon",

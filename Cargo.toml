@@ -10,8 +10,8 @@ keywords = ["network-coding", "rlnc", "reed-solomon", "error-correction", "strea
 categories = ["algorithms", "encoding", "network-programming"]
 
 [dependencies]
-binius_field = { git="https://github.com/IrreducibleOSS/binius.git" }
-binius_core = { git="https://github.com/IrreducibleOSS/binius.git" }
+binius_field = { git="https://github.com/IrreducibleOSS/binius.git", rev="1b09443bbb08b13e0116be81ab09742589aed267" }
+binius_core = { git="https://github.com/IrreducibleOSS/binius.git", rev="1b09443bbb08b13e0116be81ab09742589aed267" }
 rand = { version = "0.8", features = ["small_rng"] }
 rand_chacha = "0.3"
 thiserror = "1.0"
