@@ -36,10 +36,12 @@ impl<F: BiniusField> RsDecoder<F> {
     }
 
     /// Generate a Vandermonde matrix row
+    #[cfg(test)]
     fn vandermonde_row(&self, x: F, k: usize) -> Vec<F> {
         let mut row = vec![F::ONE; k];
         let mut power = F::ONE;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 1..k {
             power *= x;
             row[i] = power;
@@ -63,6 +65,7 @@ impl<F: BiniusField> RsDecoder<F> {
         for col in 0..n {
             // Find pivot
             let mut pivot = None;
+            #[allow(clippy::needless_range_loop)]
             for row in rank..matrix.len() {
                 if !matrix[row][col].is_zero() {
                     pivot = Some(row);

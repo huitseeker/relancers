@@ -94,7 +94,7 @@ fn bench_rs_decoding(c: &mut Criterion) {
         let point = GF256::from(i as u8);
         let mut coeffs = vec![GF256::from(1u8); symbols];
         let mut power = GF256::from(1u8);
-	#[allow(clippy::needless_range_loop)]
+        #[allow(clippy::needless_range_loop)]
         for j in 1..symbols {
             power *= point;
             coeffs[j] = power;

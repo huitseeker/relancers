@@ -60,9 +60,9 @@ impl Symbol {
     }
 
     /// Scale this symbol by a field element
-    pub fn scale<F: BiniusField>(&mut self, scalar: F)
+    pub fn scale<F>(&mut self, scalar: F)
     where
-        F: From<u8> + Into<u8>,
+        F: BiniusField + From<u8> + Into<u8>,
     {
         if scalar.is_zero() {
             for byte in &mut self.data {
@@ -79,9 +79,9 @@ impl Symbol {
     }
 
     /// Create a copy of this symbol scaled by a field element
-    pub fn scaled<F: BiniusField>(&self, scalar: F) -> Self
+    pub fn scaled<F>(&self, scalar: F) -> Self
     where
-        F: From<u8> + Into<u8>,
+        F: BiniusField + From<u8> + Into<u8>,
     {
         let mut result = self.clone();
         result.scale(scalar);

@@ -23,9 +23,9 @@ impl CodingRng {
     }
 
     /// Generate random coefficients for network coding
-    pub fn generate_coefficients<F: BiniusField>(&mut self, count: usize) -> Vec<F>
+    pub fn generate_coefficients<F>(&mut self, count: usize) -> Vec<F>
     where
-        F: From<u8>,
+        F: BiniusField + From<u8>,
     {
         use rand::Rng;
 
@@ -39,9 +39,9 @@ impl CodingRng {
     }
 
     /// Generate a single random coefficient
-    pub fn generate_coefficient<F: BiniusField>(&mut self) -> F
+    pub fn generate_coefficient<F>(&mut self) -> F
     where
-        F: From<u8>,
+        F: BiniusField + From<u8>,
     {
         use rand::Rng;
 

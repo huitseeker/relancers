@@ -1,6 +1,8 @@
 # Relancers
 
-Random Linear Network Coding for Rust. Powered by Binius for AVX-512 acceleration.
+⚠️ **Alpha Software** - This crate is in early development and has not been security audited. Use in production at your own risk.
+
+High-performance Random Linear Network Coding (RLNC) for Rust, powered by [Binius](https://github.com/IrreducibleOSS/binius) with AVX-512 acceleration.
 
 [![Crates.io](https://img.shields.io/crates/v/relancers.svg)](https://crates.io/crates/relancers)
 [![Docs.rs](https://img.shields.io/docsrs/relancers)](https://docs.rs/relancers)
@@ -26,27 +28,18 @@ use binius_field::BinaryField8b as GF256;
 let mut encoder = RlnEncoder::<GF256>::new();
 encoder.configure(16, 1024).unwrap();
 encoder.set_data(&data).unwrap();
-
 let (coeffs, symbol) = encoder.encode_packet().unwrap();
 ```
 
 ## Features
 
-- **RLNC** with dense/sparse coefficients
-- **Reed-Solomon** systematic codes  
-- **Seed-based encoding** for deterministic generation
+- **RLNC** (Random Linear Network Coding) - dense and sparse coefficients
+- **Reed-Solomon** systematic codes *(testing only, not optimized)*
 - **Streaming decoder** with partial recovery
-- **GF(256)** via Binius field arithmetic
+- **AVX-512 acceleration** via Binius
+- **GF(256)** finite field arithmetic
 
-## Binius Integration
-
-Powered by Binius's high-performance finite field library:
-- AVX-512 vectorization
-- Optimized polynomial arithmetic
-- Memory-efficient symbol storage
-- Nightly features required for SIMD
-
-## Examples
+## Usage
 
 ### Basic RLNC
 ```rust
@@ -56,26 +49,30 @@ encoder.set_data(&data)?;
 let packet = encoder.encode_packet()?;
 ```
 
-### Sparse RLNC (3× faster)
+### Sparse RLNC
 ```rust
 use relancers::coding::{SparseRlnEncoder, SparseConfig};
-
 let encoder = SparseRlnEncoder::with_sparse_config(SparseConfig::new(0.3));
 ```
 
-### Reed-Solomon
+### Reed-Solomon (Testing Only)
+⚠️ **Note**: The Reed-Solomon implementation is for testing purposes only and has not been optimized for performance.
+
 ```rust
 use relancers::coding::{RsEncoder, RsDecoder};
-
 let mut encoder = RsEncoder::<GF256>::new();
 encoder.configure(16, 1024)?;
 encoder.set_data(&data)?;
 ```
 
+## Performance
+
+Requires nightly Rust for SIMD optimizations:
+
+```bash
+cargo +nightly bench --features "nightly_features"
+```
+
 ## License
 
 MIT OR Apache-2.0
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

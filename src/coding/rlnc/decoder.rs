@@ -76,6 +76,7 @@ impl<F: BiniusField> RlnDecoder<F> {
         for col in 0..self.symbols {
             // Find pivot in the temporary matrix
             let mut pivot = None;
+            #[allow(clippy::needless_range_loop)]
             for row in rank..temp_matrix.len() {
                 if !temp_matrix[row][col].is_zero() {
                     pivot = Some(row);
@@ -194,6 +195,7 @@ impl<F: BiniusField> RlnDecoder<F> {
         for col in 0..n {
             // Find pivot
             let mut pivot = None;
+            #[allow(clippy::needless_range_loop)]
             for row in rank..matrix.len() {
                 if !matrix[row][col].is_zero() {
                     pivot = Some(row);

@@ -4,36 +4,47 @@ use thiserror::Error;
 /// Error type for encoding and decoding operations
 #[derive(Error, Debug, PartialEq)]
 pub enum CodingError {
+    /// Invalid parameters were provided to the encoder or decoder
     #[error("Invalid parameters provided")]
     InvalidParameters,
 
+    /// Insufficient data has been received for successful decoding
     #[error("Insufficient data for decoding")]
     InsufficientData,
 
+    /// The symbol size is invalid (e.g., zero or too large)
     #[error("Invalid symbol size")]
     InvalidSymbolSize,
 
+    /// The encoding operation failed due to internal error
     #[error("Encoding failed")]
     EncodingFailed,
 
+    /// The decoding operation failed due to insufficient or invalid data
     #[error("Decoding failed")]
     DecodingFailed,
 
+    /// The packet format is invalid or corrupted
     #[error("Invalid packet format")]
     InvalidPacketFormat,
 
+    /// The encoder or decoder has not been properly configured
     #[error("Not configured")]
     NotConfigured,
 
+    /// No data has been set for encoding
     #[error("No data set")]
     NoDataSet,
 
+    /// The provided data size is invalid for the current configuration
     #[error("Invalid data size")]
     InvalidDataSize,
 
+    /// The provided coefficients are invalid (e.g., all zeros)
     #[error("Invalid coefficients")]
     InvalidCoefficients,
 
+    /// The symbol is redundant and does not increase the matrix rank
     #[error("Redundant contribution - does not increase matrix rank")]
     RedundantContribution,
 }
