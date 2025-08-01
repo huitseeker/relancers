@@ -65,50 +65,25 @@ impl<F: BiniusField> RlnDecoder<F> {
             return false;
         }
 
-        // Create a temporary matrix with the new row added
-        let mut temp_matrix = self.matrix.clone();
-        temp_matrix.push(coefficients.to_vec());
-
-        // Check rank using Gaussian elimination
-        let mut rank = 0;
-        let _temp_pivot_rows = self.pivot_rows.clone();
-
+        // Check if the new coefficients are linearly independent of existing rows
+        // by applying the same Gaussian elimination process without cloning
+        let mut temp_coefficients = coefficients.to_vec();
+        
+        // Apply existing row operations to the new coefficients
         for col in 0..self.symbols {
-            // Find pivot in the temporary matrix
-            let mut pivot = None;
-            #[allow(clippy::needless_range_loop)]
-            for row in rank..temp_matrix.len() {
-                if !temp_matrix[row][col].is_zero() {
-                    pivot = Some(row);
-                    break;
-                }
-            }
-
-            if let Some(pivot_row) = pivot {
-                // Check if this pivot is in the new row (last row)
-                if pivot_row == temp_matrix.len() - 1 {
-                    return true; // New contribution increases rank
-                }
-
-                // Eliminate other rows
-                for row in 0..temp_matrix.len() {
-                    if row != pivot_row && !temp_matrix[row][col].is_zero() {
-                        let factor = temp_matrix[row][col];
-                        for col_idx in col..self.symbols {
-                            temp_matrix[row][col_idx] = temp_matrix[row][col_idx]
-                                + temp_matrix[pivot_row][col_idx] * factor;
-                        }
+            if let Some(pivot_row) = self.pivot_rows[col] {
+                let factor = temp_coefficients[col];
+                if !factor.is_zero() {
+                    for col_idx in col..self.symbols {
+                        temp_coefficients[col_idx] = temp_coefficients[col_idx]
+                            + self.matrix[pivot_row][col_idx] * factor;
                     }
-                }
-
-                rank += 1;
-                if rank >= self.symbols {
-                    break;
                 }
             }
         }
 
-        false // No rank increase
+        // Check if any coefficient in the transformed vector is non-zero
+        temp_coefficients.iter().any(|c| !c.is_zero())
     }
 
     /// Perform incremental Gaussian elimination and diagonalization
