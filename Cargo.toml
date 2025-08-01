@@ -1,0 +1,33 @@
+[package]
+name = "relancers"
+version = "0.1.0"
+edition = "2021"
+authors = ["François Garillot <francois@garillot.net>"]
+description = "Random Linear Network Coding (RLNC) for Rust"
+repository = "https://github.com/huitseeker/relancers"
+license = "Apache-2.0"
+keywords = ["network-coding", "rlnc", "reed-solomon", "error-correction", "streaming"]
+categories = ["algorithms", "encoding", "network-programming"]
+
+[dependencies]
+binius_field = { git="https://github.com/IrreducibleOSS/binius.git" }
+binius_core = { git="https://github.com/IrreducibleOSS/binius.git" }
+rand = { version = "0.8", features = ["small_rng"] }
+rand_chacha = "0.3"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+tempfile = "3.8"
+
+[[bench]]
+name = "criterion"
+path = "benches/criterion.rs"
+harness = false
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+nightly_features = ["binius_field/nightly_features", "binius_core/nightly_features"]
