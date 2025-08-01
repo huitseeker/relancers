@@ -70,13 +70,13 @@ impl<F: BiniusField> RlnDecoder<F> {
         let mut temp_coefficients = coefficients.to_vec();
 
         // Apply existing row operations to the new coefficients
+        #[allow(clippy::needless_range_loop)]
         for col in 0..self.symbols {
             if let Some(pivot_row) = self.pivot_rows[col] {
                 let factor = temp_coefficients[col];
                 if !factor.is_zero() {
                     for col_idx in col..self.symbols {
-                        temp_coefficients[col_idx] =
-                            temp_coefficients[col_idx] + self.matrix[pivot_row][col_idx] * factor;
+                        temp_coefficients[col_idx] += self.matrix[pivot_row][col_idx] * factor;
                     }
                 }
             }
