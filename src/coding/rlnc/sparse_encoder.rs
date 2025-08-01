@@ -370,7 +370,11 @@ mod tests {
 
         let coeffs = full_encoder.generate_coefficients();
         let stats = full_encoder.sparsity_stats(&coeffs);
-        assert!(stats.non_zeros >= 95, "Expected at least 95 non-zeros, got {}", stats.non_zeros);
+        assert!(
+            stats.non_zeros >= 95,
+            "Expected at least 95 non-zeros, got {}",
+            stats.non_zeros
+        );
 
         // Test 10% sparsity - allow small tolerance due to rounding
         let mut sparse_encoder =
@@ -383,9 +387,11 @@ mod tests {
         let expected = 10;
         let tolerance = 3; // Allow ±3 due to rounding
         assert!(
-            (stats.non_zeros as i32 - expected as i32).abs() <= tolerance,
+            (stats.non_zeros as i32 - expected).abs() <= tolerance,
             "Expected ~{} non-zeros (±{}), got {}",
-            expected, tolerance, stats.non_zeros
+            expected,
+            tolerance,
+            stats.non_zeros
         );
     }
 }
