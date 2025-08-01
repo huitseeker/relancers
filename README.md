@@ -75,4 +75,4 @@ cargo +nightly bench --features "nightly_features"
 
 ## License
 
-MIT OR Apache-2.0
+Apache-2.0

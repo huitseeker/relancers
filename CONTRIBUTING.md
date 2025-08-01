@@ -13,7 +13,7 @@ Thank you for your interest in contributing to Relancers\! This document provide
 ### Setup
 
 ```bash
-git clone https://github.com/relancers/relancers.git
+git clone https://github.com/huitseeker/relancers.git
 cd relancers
 rustup override set nightly
 cargo test --features "nightly_features"

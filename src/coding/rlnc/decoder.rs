@@ -68,15 +68,15 @@ impl<F: BiniusField> RlnDecoder<F> {
         // Check if the new coefficients are linearly independent of existing rows
         // by applying the same Gaussian elimination process without cloning
         let mut temp_coefficients = coefficients.to_vec();
-        
+
         // Apply existing row operations to the new coefficients
         for col in 0..self.symbols {
             if let Some(pivot_row) = self.pivot_rows[col] {
                 let factor = temp_coefficients[col];
                 if !factor.is_zero() {
                     for col_idx in col..self.symbols {
-                        temp_coefficients[col_idx] = temp_coefficients[col_idx]
-                            + self.matrix[pivot_row][col_idx] * factor;
+                        temp_coefficients[col_idx] =
+                            temp_coefficients[col_idx] + self.matrix[pivot_row][col_idx] * factor;
                     }
                 }
             }
