@@ -187,7 +187,7 @@ impl<F: BiniusField> RlnDecoder<F> {
     where
         F: From<u8> + Into<u8>,
     {
-        let mut matrix = self.matrix.clone();
+        let matrix = &mut self.matrix;
         let mut symbols = self.received_symbols.clone();
         let mut rank = 0;
         let n = self.symbols;
