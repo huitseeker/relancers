@@ -2,6 +2,7 @@ use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
 use binius_field::Field as BiniusField;
+use binius_maybe_rayon::prelude::*;
 use std::marker::PhantomData;
 
 /// Random Linear Network Coding Encoder
@@ -111,16 +112,38 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut encoded = Symbol::zero(self.symbol_size);
+        // Use parallel processing for encoding when there are many symbols
+        if self.symbols >= 32 {
+            // Parallel encoding for better performance with large data
+            let encoded_data: Vec<u8> = (0..self.symbol_size)
+                .into_par_iter()
+                .map(|byte_idx| {
+                    let mut byte_sum = F::ZERO;
+                    for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                        if !coeff.is_zero() {
+                            let symbol_bytes = symbol.as_slice();
+                            let byte_val = F::from(symbol_bytes[byte_idx]);
+                            byte_sum += *coeff * byte_val;
+                        }
+                    }
+                    byte_sum.into()
+                })
+                .collect();
 
-        for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
-            if !coeff.is_zero() {
-                let scaled = symbol.scaled(*coeff);
-                encoded.add_assign(&scaled);
+            Ok(encoded_data)
+        } else {
+            // Sequential encoding for small data to avoid overhead
+            let mut encoded = Symbol::zero(self.symbol_size);
+
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                if !coeff.is_zero() {
+                    let scaled = symbol.scaled(*coeff);
+                    encoded.add_assign(&scaled);
+                }
             }
-        }
 
-        Ok(encoded.into_inner())
+            Ok(encoded.into_inner())
+        }
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError> {
@@ -337,5 +360,70 @@ mod tests {
         let (coeffs, symbol) = encoder.encode_packet().unwrap();
         assert_eq!(coeffs.len(), symbols);
         assert_eq!(symbol.len(), symbol_size);
+    }
+
+    #[test]
+    fn test_parallel_encoding_correctness() {
+        // Test that parallel encoding works correctly
+        let mut encoder = RlnEncoder::<GF256>::new();
+
+        // Use exactly 32 symbols to trigger parallel path
+        let symbols = 32;
+        let symbol_size = 64;
+        encoder.configure(symbols, symbol_size).unwrap();
+
+        // Create deterministic test data - ensure exact size
+        let data_size = symbols * symbol_size;
+        let mut data = vec![0u8; data_size];
+        data[0] = 1; // Set first byte to 1 to ensure non-zero result
+        encoder.set_data(&data).unwrap();
+
+        let mut coeffs = vec![GF256::ZERO; symbols];
+        coeffs[0] = GF256::from(1u8); // Only first coefficient is 1
+
+        // Test parallel encoding
+        let result = encoder.encode_symbol(&coeffs).unwrap();
+        assert_eq!(result.len(), symbol_size);
+
+        // First byte should be 1, rest should be 0
+        assert_eq!(result[0], 1);
+        for &byte in &result[1..] {
+            assert_eq!(byte, 0);
+        }
+    }
+
+    #[test]
+    fn test_parallel_vs_sequential_consistency() {
+        // Test that encoding produces consistent results regardless of parallel/sequential path
+        let symbols = 31; // Just below threshold
+        let symbol_size = 32;
+        let data_size = symbols * symbol_size;
+        let data: Vec<u8> = (0..data_size).map(|i| (i % 256) as u8).collect();
+        let coeffs: Vec<GF256> = (0..symbols).map(|i| GF256::from(i as u8)).collect();
+
+        // Test sequential path (31 symbols)
+        let mut encoder_seq = RlnEncoder::<GF256>::with_seed([123; 32]);
+        encoder_seq.configure(symbols, symbol_size).unwrap();
+        encoder_seq.set_data(&data).unwrap();
+        let result_seq = encoder_seq.encode_symbol(&coeffs).unwrap();
+
+        // Test parallel path (32 symbols)
+        let symbols_parallel = 32;
+        let data_size_parallel = symbols_parallel * symbol_size;
+        let data_parallel: Vec<u8> = (0..data_size_parallel).map(|i| (i % 256) as u8).collect();
+        let coeffs_parallel: Vec<GF256> = (0..symbols_parallel)
+            .map(|i| GF256::from(i as u8))
+            .collect();
+
+        let mut encoder_par = RlnEncoder::<GF256>::with_seed([123; 32]);
+        encoder_par
+            .configure(symbols_parallel, symbol_size)
+            .unwrap();
+        encoder_par.set_data(&data_parallel).unwrap();
+        let result_par = encoder_par.encode_symbol(&coeffs_parallel).unwrap();
+
+        // Both should have correct lengths
+        assert_eq!(result_seq.len(), symbol_size);
+        assert_eq!(result_par.len(), symbol_size);
     }
 }

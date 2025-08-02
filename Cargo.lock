@@ -223,6 +223,7 @@ dependencies = [
  "cfg-if",
  "either",
  "itertools 0.14.0",
+ "rayon",
 ]
 
 [[package]]
@@ -1269,6 +1270,7 @@ version = "0.1.0"
 dependencies = [
  "binius_core",
  "binius_field",
+ "binius_maybe_rayon",
  "criterion",
  "proptest",
  "rand 0.8.5",

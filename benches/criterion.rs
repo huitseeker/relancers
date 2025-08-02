@@ -8,7 +8,7 @@ use relancers::coding::traits::{Decoder, Encoder, StreamingDecoder};
 
 fn bench_rlnc_encoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("RLNC Encoding");
-    
+
     let symbols = 16;
     let symbol_size = 1024;
     let data = vec![0u8; symbols * symbol_size];
@@ -32,7 +32,7 @@ fn bench_rlnc_encoding(c: &mut Criterion) {
 
 fn bench_rlnc_decoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("RLNC Decoding");
-    
+
     let symbols = 16;
     let symbol_size = 1024;
     let data = vec![0u8; symbols * symbol_size];
@@ -73,7 +73,7 @@ fn bench_rlnc_decoding(c: &mut Criterion) {
 
 fn bench_rs_encoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("RS Encoding");
-    
+
     let symbols = 16;
     let symbol_size = 1024;
     let data = vec![0u8; symbols * symbol_size];
@@ -97,7 +97,7 @@ fn bench_rs_encoding(c: &mut Criterion) {
 
 fn bench_rs_decoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("RS Decoding");
-    
+
     let symbols = 16;
     let symbol_size = 1024;
     let data = vec![0u8; symbols * symbol_size];
