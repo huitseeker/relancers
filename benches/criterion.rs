@@ -329,12 +329,11 @@ fn bench_rlnc_recoding(c: &mut Criterion) {
     group.bench_function("recode symbol", |b| {
         b.iter(|| {
             use relancers::coding::traits::RecodingDecoder;
-            
+
             // Generate random recoding coefficients
             let mut rng = rand::thread_rng();
-            let recode_coeffs: Vec<GF256> = (0..symbols).map(|_| {
-                GF256::from(rng.gen::<u8>())
-            }).collect();
+            let recode_coeffs: Vec<GF256> =
+                (0..symbols).map(|_| GF256::from(rng.gen::<u8>())).collect();
 
             let recoded_symbol = decoder.recode(&recode_coeffs).unwrap();
             black_box(recoded_symbol);
@@ -344,7 +343,7 @@ fn bench_rlnc_recoding(c: &mut Criterion) {
     group.bench_function("recoding readiness", |b| {
         b.iter(|| {
             use relancers::coding::traits::RecodingDecoder;
-            
+
             let can_recode = decoder.can_recode();
             let symbols_needed = decoder.symbols_needed_for_recode();
             black_box((can_recode, symbols_needed));
