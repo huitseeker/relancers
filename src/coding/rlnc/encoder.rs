@@ -173,7 +173,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use binius_field::BinaryField8b as GF256;
+    use binius_field::AESTowerField8b as GF256;
 
     #[test]
     fn test_encoder_configuration() {
@@ -213,8 +213,8 @@ mod tests {
         let encoded = encoder.encode_symbol(&coeffs).unwrap();
 
         assert_eq!(encoded.len(), 4);
-        // With proper GF(256) multiplication
-        let expected = vec![11, 9, 10, 8]; // Actual result with Binius field
+        // With proper GF(256) multiplication using AESTowerField8b
+        let expected = vec![11, 14, 13, 20]; // Actual result with AESTowerField8b
         assert_eq!(encoded, expected);
     }
 

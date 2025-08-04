@@ -162,7 +162,7 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use binius_field::BinaryField8b as GF256;
+    use binius_field::AESTowerField8b as GF256;
 
     #[test]
     fn test_sparse_config() {

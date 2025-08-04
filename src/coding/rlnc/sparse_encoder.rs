@@ -233,7 +233,7 @@ pub struct SparsityStats {
 mod tests {
     use super::*;
     use crate::coding::traits::Decoder;
-    use binius_field::BinaryField8b as GF256;
+    use binius_field::AESTowerField8b as GF256;
 
     #[test]
     fn test_sparse_encoder_configuration() {

@@ -206,7 +206,7 @@ mod tests {
     use super::*;
     use crate::coding::reed_solomon::encoder::RsEncoder;
     use crate::coding::traits::{Decoder, Encoder};
-    use binius_field::BinaryField8b as GF256;
+    use binius_field::AESTowerField8b as GF256;
 
     #[test]
     fn test_rs_decoder_configuration() {

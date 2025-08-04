@@ -6,7 +6,7 @@
 
 #![warn(missing_docs)]
 
-pub use binius_field::{BinaryField, BinaryField8b, Field as BiniusField};
+pub use binius_field::{AESTowerField8b, BinaryField, Field as BiniusField};
 
 pub mod coding;
 pub mod storage;
