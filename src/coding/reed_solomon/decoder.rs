@@ -8,26 +8,23 @@ use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 use std::marker::PhantomData;
 
 /// Reed-Solomon decoder using systematic Vandermonde matrices
-pub struct RsDecoder<F: BiniusField> {
+pub struct RsDecoder<F: BiniusField, const N: usize> {
     /// Number of source symbols (k)
     symbols: usize,
-    /// Size of each symbol in bytes
-    symbol_size: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol>,
+    received_symbols: Vec<Symbol<N>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol>,
+    decoded_symbols: Vec<Symbol<N>>,
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField> RsDecoder<F> {
+impl<F: BiniusField, const N: usize> RsDecoder<F, N> {
     /// Create a new Reed-Solomon decoder
     pub fn new() -> Self {
         Self {
             symbols: 0,
-            symbol_size: 0,
             received_symbols: Vec::new(),
             coefficients: Vec::new(),
             decoded_symbols: Vec::new(),
@@ -53,8 +50,8 @@ impl<F: BiniusField> RsDecoder<F> {
     fn gaussian_elimination(
         &self,
         matrix: &mut [Vec<F>],
-        rhs: &mut [Symbol],
-    ) -> Result<Vec<Symbol>, CodingError>
+        rhs: &mut [Symbol<N>],
+    ) -> Result<Vec<Symbol<N>>, CodingError>
     where
         F: WithUnderlier<Underlier = u8>,
     {
@@ -110,7 +107,7 @@ impl<F: BiniusField> RsDecoder<F> {
         }
 
         // Extract solution
-        let mut solution = vec![Symbol::zero(self.symbol_size); n];
+        let mut solution = vec![Symbol::zero(); n];
         for (i, row) in matrix.iter().enumerate().take(n) {
             for (j, &coeff) in row.iter().enumerate().take(n) {
                 if !coeff.is_zero() {
@@ -124,23 +121,22 @@ impl<F: BiniusField> RsDecoder<F> {
     }
 }
 
-impl<F: BiniusField> Default for RsDecoder<F> {
+impl<F: BiniusField, const N: usize> Default for RsDecoder<F, N> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField> Decoder<F> for RsDecoder<F>
+impl<F: BiniusField, const N: usize> Decoder<F, N> for RsDecoder<F, N>
 where
     F: WithUnderlier<Underlier = u8>,
 {
-    fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
-        if symbols == 0 || symbol_size == 0 {
+    fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
+        if symbols == 0 || N == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
         self.symbols = symbols;
-        self.symbol_size = symbol_size;
         self.received_symbols.clear();
         self.coefficients.clear();
         self.decoded_symbols.clear();
@@ -148,18 +144,13 @@ where
         Ok(())
     }
 
-    fn add_symbol(&mut self, coefficients: &[F], symbol: &[u8]) -> Result<(), CodingError> {
+    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<N>) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
 
-        if symbol.len() != self.symbol_size {
-            return Err(CodingError::InvalidSymbolSize);
-        }
-
         self.coefficients.push(coefficients.to_vec());
-        self.received_symbols
-            .push(Symbol::from_data(symbol.to_vec()));
+        self.received_symbols.push(symbol.clone());
 
         Ok(())
     }
@@ -178,7 +169,7 @@ where
 
         self.decoded_symbols = self.gaussian_elimination(&mut matrix, &mut symbols)?;
 
-        let mut result = Vec::with_capacity(self.symbols * self.symbol_size);
+        let mut result = Vec::with_capacity(self.symbols * N);
         for symbol in &self.decoded_symbols {
             result.extend_from_slice(symbol.as_slice());
         }
@@ -193,10 +184,6 @@ where
     fn symbols_received(&self) -> usize {
         self.coefficients.len()
     }
-
-    fn symbol_size(&self) -> usize {
-        self.symbol_size
-    }
 }
 
 #[cfg(test)]
@@ -208,19 +195,18 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_configuration() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        assert!(decoder.configure(4, 16).is_ok());
+        let mut decoder = RsDecoder::<GF256, 16>::new();
+        assert!(decoder.configure(4).is_ok());
         assert_eq!(decoder.symbols, 4);
-        assert_eq!(decoder.symbol_size, 16);
     }
 
     #[test]
     fn test_rs_decoder_add_symbol() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        decoder.configure(2, 4).unwrap();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
+        decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = vec![1, 2, 3, 4];
+        let symbol = Symbol::from_data([1, 2, 3, 4]);
 
         assert!(decoder.add_symbol(&coeffs, &symbol).is_ok());
         assert_eq!(decoder.coefficients.len(), 1);
@@ -228,11 +214,11 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_insufficient_data() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        decoder.configure(2, 4).unwrap();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
+        decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = vec![1, 2, 3, 4];
+        let symbol = Symbol::from_data([1, 2, 3, 4]);
 
         decoder.add_symbol(&coeffs, &symbol).unwrap();
         assert!(!decoder.can_decode());
@@ -243,15 +229,14 @@ mod tests {
     fn test_rs_decoder_round_trip() {
         use crate::coding::reed_solomon::encoder::RsEncoder;
         use crate::coding::traits::Encoder;
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 4>::new();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
 
         let symbols = 3;
-        let symbol_size = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
 
@@ -270,66 +255,54 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_empty_data() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        assert!(decoder.configure(0, 4).is_err());
-        assert!(decoder.configure(4, 0).is_err());
+        let mut decoder = RsDecoder::<GF256, 4>::new();
+        assert!(decoder.configure(0).is_err());
     }
 
     #[test]
     fn test_rs_decoder_large_symbols() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        assert!(decoder.configure(255, 1600).is_ok()); // Max RS symbols
+        let mut decoder = RsDecoder::<GF256, 1600>::new();
+        assert!(decoder.configure(255).is_ok()); // Max RS symbols
         assert_eq!(decoder.symbols, 255);
-        assert_eq!(decoder.symbol_size, 1600);
     }
 
     #[test]
     fn test_rs_decoder_zero_symbol_size() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        assert!(decoder.configure(5, 0).is_err());
+        let mut decoder = RsDecoder::<GF256, 0>::new();
+        assert!(decoder.configure(5).is_err());
     }
 
     #[test]
     fn test_rs_decoder_zero_symbols() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        assert!(decoder.configure(0, 1024).is_err());
+        let mut decoder = RsDecoder::<GF256, 1024>::new();
+        assert!(decoder.configure(0).is_err());
     }
 
     #[test]
     fn test_rs_decoder_not_configured() {
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = vec![1, 2, 3, 4];
+        let symbol = Symbol::from_data([1, 2, 3, 4]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
     #[test]
     fn test_rs_decoder_wrong_coefficients_length() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        decoder.configure(2, 4).unwrap();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
+        decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1)]; // Wrong length
-        let symbol = vec![1, 2, 3, 4];
-        assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
-    }
-
-    #[test]
-    fn test_rs_decoder_wrong_symbol_size() {
-        let mut decoder = RsDecoder::<GF256>::new();
-        decoder.configure(2, 4).unwrap();
-
-        let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = vec![1, 2, 3]; // Wrong size
+        let symbol = Symbol::from_data([1, 2, 3, 4]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
     #[test]
     fn test_rs_decoder_single_symbol() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 8>::new();
+        let mut decoder = RsDecoder::<GF256, 8>::new();
 
-        encoder.configure(1, 8).unwrap();
-        decoder.configure(1, 8).unwrap();
+        encoder.configure(1).unwrap();
+        decoder.configure(1).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
@@ -346,12 +319,13 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_reuse() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        // only works with multiple of the symbol size
+        let mut encoder = RsEncoder::<GF256, 4>::new();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
 
         // First use
-        encoder.configure(2, 4).unwrap();
-        decoder.configure(2, 4).unwrap();
+        encoder.configure(2).unwrap();
+        decoder.configure(2).unwrap();
 
         let data1 = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data1).unwrap();
@@ -367,10 +341,10 @@ mod tests {
         assert_eq!(decoded1, data1);
 
         // Reconfigure and reuse
-        encoder.configure(3, 2).unwrap();
-        decoder.configure(3, 2).unwrap();
+        encoder.configure(3).unwrap();
+        decoder.configure(3).unwrap();
 
-        let data2 = vec![9, 10, 11, 12, 13, 14];
+        let data2 = vec![9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
         encoder.set_data(&data2).unwrap();
 
         for i in 0..3 {
@@ -386,14 +360,14 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_stress_large_data() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 512>::new();
+        let mut decoder = RsDecoder::<GF256, 512>::new();
 
         let symbols = 50;
         let symbol_size = 512;
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         let data = vec![0u8; symbols * symbol_size];
         encoder.set_data(&data).unwrap();
@@ -412,15 +386,14 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_out_of_order_symbols() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 4>::new();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
 
         let symbols = 3;
-        let symbol_size = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
 
@@ -445,15 +418,14 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_duplicate_symbols() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 4>::new();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
 
         let symbols = 3;
-        let symbol_size = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
 
@@ -478,15 +450,14 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_progress_calculation() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 4>::new();
+        let mut decoder = RsDecoder::<GF256, 4>::new();
 
-        let symbols = 4;
-        let symbol_size = 4;
+        let symbols: usize = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
 
@@ -506,16 +477,16 @@ mod tests {
 
     #[test]
     fn test_rs_decoder_random_data_patterns() {
-        let mut encoder = RsEncoder::<GF256>::new();
-        let mut decoder = RsDecoder::<GF256>::new();
+        let mut encoder = RsEncoder::<GF256, 8>::new();
+        let mut decoder = RsDecoder::<GF256, 8>::new();
 
         let symbols = 5;
-        let symbol_size = 8;
+        const SSIZE: usize = 8;
 
         // Test with all zeros
-        let data_zeros = vec![0; symbols * symbol_size];
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        let data_zeros = vec![0; symbols * SSIZE];
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
         encoder.set_data(&data_zeros).unwrap();
 
         for i in 0..symbols {
@@ -527,9 +498,9 @@ mod tests {
         assert_eq!(decoder.decode().unwrap(), data_zeros);
 
         // Reset and test with all 0xFF
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
-        let data_ones = vec![0xFF; symbols * symbol_size];
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
+        let data_ones = vec![0xFF; symbols * SSIZE];
         encoder.set_data(&data_ones).unwrap();
 
         for i in 0..symbols {
@@ -541,9 +512,9 @@ mod tests {
         assert_eq!(decoder.decode().unwrap(), data_ones);
 
         // Test with incrementing pattern
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
-        let data_pattern: Vec<u8> = (0..(symbols * symbol_size) as u8).collect();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
+        let data_pattern: Vec<u8> = (0..(symbols * SSIZE) as u8).collect();
         encoder.set_data(&data_pattern).unwrap();
 
         for i in 0..symbols {

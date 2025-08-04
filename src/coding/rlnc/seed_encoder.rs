@@ -8,13 +8,11 @@ use binius_field::Field as BiniusField;
 use std::marker::PhantomData;
 
 /// Seed-based RLNC encoder that uses small seeds instead of full coefficient vectors
-pub struct SeedRlnEncoder<F: BiniusField> {
+pub struct SeedRlnEncoder<F: BiniusField, const N: usize> {
     /// Number of source symbols
     symbols: usize,
-    /// Size of each symbol in bytes
-    symbol_size: usize,
     /// Original data split into symbols
-    data: Vec<Symbol>,
+    data: Vec<Symbol<N>>,
     /// Current seed value for deterministic coefficient generation
     current_seed: u32,
     /// Random number generator used for deterministic generation
@@ -24,12 +22,11 @@ pub struct SeedRlnEncoder<F: BiniusField> {
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField> SeedRlnEncoder<F> {
+impl<F: BiniusField, const N: usize> SeedRlnEncoder<F, N> {
     /// Create a new seed-based RLNC encoder
     pub fn new() -> Self {
         Self {
             symbols: 0,
-            symbol_size: 0,
             data: Vec::new(),
             current_seed: 0,
             rng: CodingRng::new(),
@@ -44,7 +41,6 @@ impl<F: BiniusField> SeedRlnEncoder<F> {
         seed_bytes[..4].copy_from_slice(&seed.to_le_bytes());
         Self {
             symbols: 0,
-            symbol_size: 0,
             data: Vec::new(),
             current_seed: seed,
             rng: CodingRng::from_seed(seed_bytes),
@@ -69,7 +65,7 @@ impl<F: BiniusField> SeedRlnEncoder<F> {
 
     /// Get the total size of the data in bytes
     pub fn data_size(&self) -> usize {
-        self.symbols * self.symbol_size
+        self.symbols * N
     }
 
     /// Split data into symbols
@@ -80,9 +76,10 @@ impl<F: BiniusField> SeedRlnEncoder<F> {
 
         self.data.clear();
         for i in 0..self.symbols {
-            let start = i * self.symbol_size;
-            let end = start + self.symbol_size;
-            let symbol_data = data[start..end].to_vec();
+            let start = i * N;
+            let end = start + N;
+            // Safety: just checked
+            let symbol_data = data[start..end].try_into().unwrap();
             self.data.push(Symbol::from_data(symbol_data));
         }
 
@@ -101,23 +98,22 @@ impl<F: BiniusField> SeedRlnEncoder<F> {
     }
 }
 
-impl<F: BiniusField> Default for SeedRlnEncoder<F> {
+impl<F: BiniusField, const N: usize> Default for SeedRlnEncoder<F, N> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField> Encoder<F> for SeedRlnEncoder<F>
+impl<F: BiniusField, const N: usize> Encoder<F, N> for SeedRlnEncoder<F, N>
 where
     F: WithUnderlier<Underlier = u8>,
 {
-    fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
-        if symbols == 0 || symbol_size == 0 {
+    fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
+        if symbols == 0 || N == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
         self.symbols = symbols;
-        self.symbol_size = symbol_size;
         self.data.clear();
         self.data.reserve(symbols);
         self.packet_counter = 0;
@@ -126,14 +122,14 @@ where
     }
 
     fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError> {
-        if self.symbols == 0 || self.symbol_size == 0 {
+        if self.symbols == 0 || N == 0 {
             return Err(CodingError::NotConfigured);
         }
 
         self.split_into_symbols(data)
     }
 
-    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Vec<u8>, CodingError> {
+    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Symbol<N>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -142,7 +138,7 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut encoded = Symbol::zero(self.symbol_size);
+        let mut encoded = Symbol::zero();
 
         for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
             if !coeff.is_zero() {
@@ -151,10 +147,10 @@ where
             }
         }
 
-        Ok(encoded.into_inner())
+        Ok(encoded)
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<N>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
@@ -174,10 +170,6 @@ where
     fn symbols(&self) -> usize {
         self.symbols
     }
-
-    fn symbol_size(&self) -> usize {
-        self.symbol_size
-    }
 }
 
 #[cfg(test)]
@@ -189,26 +181,25 @@ mod tests {
 
     #[test]
     fn test_seed_encoder_configuration() {
-        let mut encoder = SeedRlnEncoder::<GF256>::new();
-        assert!(encoder.configure(4, 16).is_ok());
+        let mut encoder = SeedRlnEncoder::<GF256, 16>::new();
+        assert!(encoder.configure(4).is_ok());
         assert_eq!(encoder.symbols(), 4);
-        assert_eq!(encoder.symbol_size(), 16);
     }
 
     #[test]
     fn test_seed_encoder_set_seed() {
-        let mut encoder = SeedRlnEncoder::<GF256>::new();
+        let mut encoder = SeedRlnEncoder::<GF256, 16>::new();
         encoder.set_seed(12345);
         assert_eq!(encoder.current_seed(), 12345);
     }
 
     #[test]
     fn test_seed_encoder_deterministic() {
-        let mut encoder1 = SeedRlnEncoder::<GF256>::with_seed(42);
-        let mut encoder2 = SeedRlnEncoder::<GF256>::with_seed(42);
+        let mut encoder1 = SeedRlnEncoder::<GF256, 4>::with_seed(42);
+        let mut encoder2 = SeedRlnEncoder::<GF256, 4>::with_seed(42);
 
-        encoder1.configure(3, 4).unwrap();
-        encoder2.configure(3, 4).unwrap();
+        encoder1.configure(3).unwrap();
+        encoder2.configure(3).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         encoder1.set_data(&data).unwrap();
@@ -226,11 +217,11 @@ mod tests {
 
     #[test]
     fn test_seed_encoder_different_seeds() {
-        let mut encoder1 = SeedRlnEncoder::<GF256>::with_seed(1);
-        let mut encoder2 = SeedRlnEncoder::<GF256>::with_seed(2);
+        let mut encoder1 = SeedRlnEncoder::<GF256, 4>::with_seed(1);
+        let mut encoder2 = SeedRlnEncoder::<GF256, 4>::with_seed(2);
 
-        encoder1.configure(2, 4).unwrap();
-        encoder2.configure(2, 4).unwrap();
+        encoder1.configure(2).unwrap();
+        encoder2.configure(2).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder1.set_data(&data).unwrap();
@@ -245,15 +236,14 @@ mod tests {
 
     #[test]
     fn test_seed_encoder_round_trip() {
-        let mut encoder = SeedRlnEncoder::<GF256>::with_seed(12345);
-        let mut decoder = RlnDecoder::<GF256>::new();
+        let mut encoder = SeedRlnEncoder::<GF256, 4>::with_seed(12345);
+        let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
-        let symbol_size = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
 
@@ -270,9 +260,9 @@ mod tests {
 
     #[test]
     fn test_seed_encoder_sequential_packets() {
-        let mut encoder = SeedRlnEncoder::<GF256>::with_seed(777);
+        let mut encoder = SeedRlnEncoder::<GF256, 4>::with_seed(777);
 
-        encoder.configure(2, 4).unwrap();
+        encoder.configure(2).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
 

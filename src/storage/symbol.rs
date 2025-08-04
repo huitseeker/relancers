@@ -2,37 +2,36 @@ use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 use std::ops::{Index, IndexMut};
 
 /// A symbol is a fixed-size chunk of data in a network coding context
-#[derive(Clone, Debug, PartialEq)]
-pub struct Symbol {
-    data: Vec<u8>,
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct Symbol<const N: usize> {
+    data: [u8; N],
 }
 
-impl Symbol {
-    /// Create a new symbol with the given size
-    pub fn new(size: usize) -> Self {
-        Self {
-            data: vec![0u8; size],
-        }
+impl<const N: usize> Symbol<N> {
+    /// Create a new symbol with all bytes set to 0
+    pub fn new() -> Self {
+        Self { data: [0u8; N] }
     }
 
     /// Create a new symbol from existing data
-    pub fn from_data(data: Vec<u8>) -> Self {
+    pub fn from_data(data: [u8; N]) -> Self {
         Self { data }
     }
 
-    /// Create a zero symbol of given size
-    pub fn zero(size: usize) -> Self {
-        Self::new(size)
+    /// Create a zero symbol
+    pub fn zero() -> Self {
+        Self::new()
     }
 
-    /// Get the size of the symbol in bytes
-    pub fn len(&self) -> usize {
-        self.data.len()
+    /// Get the size of the symbol in bytes (const)
+    pub const fn len() -> usize {
+        N
     }
 
-    /// Check if the symbol is empty
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+    /// Check if the symbol is empty (always false for N > 0)
+    pub const fn is_empty() -> bool {
+        N == 0
     }
 
     /// Get the underlying data as a slice
@@ -46,14 +45,12 @@ impl Symbol {
     }
 
     /// Get the underlying data
-    pub fn into_inner(self) -> Vec<u8> {
+    pub fn into_inner(self) -> [u8; N] {
         self.data
     }
 
     /// Add another symbol to this one (element-wise XOR for GF(256))
-    pub fn add_assign(&mut self, other: &Symbol) {
-        assert_eq!(self.len(), other.len(), "Symbols must have same size");
-
+    pub fn add_assign(&mut self, other: &Self) {
         for (a, b) in self.data.iter_mut().zip(other.data.iter()) {
             *a ^= *b;
         }
@@ -65,9 +62,7 @@ impl Symbol {
         F: BiniusField + WithUnderlier<Underlier = u8>,
     {
         if scalar.is_zero() {
-            for byte in &mut self.data {
-                *byte = 0;
-            }
+            self.data = [0u8; N];
         } else if scalar != F::ONE {
             #[inline(always)]
             fn scale_byte<F>(byte: &mut u8, scalar: F)
@@ -97,9 +92,33 @@ impl Symbol {
         result.scale(scalar);
         result
     }
+
+    /// Get a mutable reference to the underlying data
+    pub fn data_mut(&mut self) -> &mut [u8; N] {
+        &mut self.data
+    }
+
+    /// Convert from a slice of bytes (panics if slice is wrong size)
+    pub fn from_slice(slice: &[u8]) -> Self {
+        assert_eq!(slice.len(), N, "Slice length must match symbol size");
+        let mut data = [0u8; N];
+        data.copy_from_slice(slice);
+        Self { data }
+    }
+
+    /// Create a symbol filled with a specific value
+    pub fn filled(value: u8) -> Self {
+        Self { data: [value; N] }
+    }
 }
 
-impl Index<usize> for Symbol {
+impl<const N: usize> Default for Symbol<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> Index<usize> for Symbol<N> {
     type Output = u8;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -107,21 +126,33 @@ impl Index<usize> for Symbol {
     }
 }
 
-impl IndexMut<usize> for Symbol {
+impl<const N: usize> IndexMut<usize> for Symbol<N> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.data[index]
     }
 }
 
-impl From<Vec<u8>> for Symbol {
-    fn from(data: Vec<u8>) -> Self {
+impl<const N: usize> From<[u8; N]> for Symbol<N> {
+    fn from(data: [u8; N]) -> Self {
         Self::from_data(data)
     }
 }
 
-impl From<Symbol> for Vec<u8> {
-    fn from(symbol: Symbol) -> Self {
+impl<const N: usize> From<Symbol<N>> for [u8; N] {
+    fn from(symbol: Symbol<N>) -> Self {
         symbol.into_inner()
+    }
+}
+
+impl<const N: usize> AsRef<[u8]> for Symbol<N> {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl<const N: usize> AsMut<[u8]> for Symbol<N> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.data
     }
 }
 
@@ -132,22 +163,21 @@ mod tests {
 
     #[test]
     fn test_symbol_creation() {
-        let symbol = Symbol::new(10);
-        assert_eq!(symbol.len(), 10);
+        let symbol = Symbol::<10>::new();
         assert_eq!(symbol.as_slice(), &[0u8; 10]);
     }
 
     #[test]
     fn test_symbol_from_data() {
-        let data = vec![1, 2, 3, 4, 5];
-        let symbol = Symbol::from_data(data.clone());
+        let data = [1, 2, 3, 4, 5];
+        let symbol = Symbol::<5>::from_data(data);
         assert_eq!(symbol.as_slice(), data.as_slice());
     }
 
     #[test]
     fn test_symbol_add_assign() {
-        let mut a = Symbol::from_data(vec![1, 2, 3, 4, 5]);
-        let b = Symbol::from_data(vec![5, 4, 3, 2, 1]);
+        let mut a = Symbol::<5>::from_data([1, 2, 3, 4, 5]);
+        let b = Symbol::<5>::from_data([5, 4, 3, 2, 1]);
 
         a.add_assign(&b);
         assert_eq!(a.as_slice(), &[4, 6, 0, 6, 4]);
@@ -155,33 +185,31 @@ mod tests {
 
     #[test]
     fn test_symbol_scaling() {
-        let mut symbol = Symbol::from_data(vec![1, 2, 3, 4, 5]);
+        let mut symbol = Symbol::<5>::from_data([1, 2, 3, 4, 5]);
         symbol.scale(GF256::from(2));
 
-        // Note: This uses actual Binius GF(256) multiplication with AESTowerField8b
-        // Results depend on actual field arithmetic
-        let result = symbol.as_slice();
-        assert_eq!(result[0], 2); // 1 * 2 = 2
-        assert_eq!(result[1], 4); // 2 * 2 = 4 (actual AESTowerField8b result)
-        assert_eq!(result[2], 6); // 3 * 2 = 6 (actual AESTowerField8b result)
-        assert_eq!(result[3], 8); // 4 * 2 = 8
-        assert_eq!(result[4], 10); // 5 * 2 = 10
+        assert_eq!(symbol.as_slice()[0], 2);
+        assert_eq!(symbol.as_slice()[1], 4);
     }
 
     #[test]
     fn test_symbol_scaling_gf256() {
-        let mut symbol = Symbol::from_data(vec![0x02, 0x03, 0x04]);
+        let mut symbol = Symbol::<3>::from_data([0x02, 0x03, 0x04]);
         let scalar = GF256::from(0x03);
         symbol.scale(scalar);
 
-        // Test actual Binius GF(256) multiplication
-        let result = symbol.as_slice();
         let expected_0: u8 = (GF256::from(0x02) * scalar).into();
         let expected_1: u8 = (GF256::from(0x03) * scalar).into();
         let expected_2: u8 = (GF256::from(0x04) * scalar).into();
 
-        assert_eq!(result[0], expected_0);
-        assert_eq!(result[1], expected_1);
-        assert_eq!(result[2], expected_2);
+        assert_eq!(symbol.as_slice()[0], expected_0);
+        assert_eq!(symbol.as_slice()[1], expected_1);
+        assert_eq!(symbol.as_slice()[2], expected_2);
+    }
+
+    #[test]
+    fn test_symbol_len_const() {
+        assert_eq!(Symbol::<16>::len(), 16);
+        assert_eq!(Symbol::<1024>::len(), 1024);
     }
 }

@@ -12,13 +12,13 @@ fn bench_rlnc_encoding(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256>::new();
-    encoder.configure(symbols, symbol_size).unwrap();
+    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
 
     group.bench_function("encode packet", |b| {
@@ -35,18 +35,18 @@ fn bench_rlnc_decoding(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256>::new();
-    let mut decoder = RlnDecoder::<GF256>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
-    encoder.configure(symbols, symbol_size).unwrap();
+    encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
 
-    decoder.configure(symbols, symbol_size).unwrap();
+    decoder.configure(symbols).unwrap();
 
     // Generate enough packets for decoding
     let mut packets = Vec::new();
@@ -56,8 +56,8 @@ fn bench_rlnc_decoding(c: &mut Criterion) {
 
     group.bench_function("decode", |b| {
         b.iter(|| {
-            let mut decoder = RlnDecoder::<GF256>::new();
-            decoder.configure(symbols, symbol_size).unwrap();
+            let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
+            decoder.configure(symbols).unwrap();
 
             for (coeffs, symbol) in &packets {
                 decoder.add_symbol(coeffs, symbol).unwrap();
@@ -75,13 +75,13 @@ fn bench_rs_encoding(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RsEncoder::<GF256>::new();
-    encoder.configure(symbols, symbol_size).unwrap();
+    let mut encoder: RsEncoder<GF256, _> = RsEncoder::<GF256, SSIZE>::new();
+    encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
 
     group.bench_function("encode packet", |b| {
@@ -98,18 +98,18 @@ fn bench_rs_decoding(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RsEncoder::<GF256>::new();
-    let mut decoder = RsDecoder::<GF256>::new();
+    let mut encoder = RsEncoder::<GF256, SSIZE>::new();
+    let mut decoder = RsDecoder::<GF256, SSIZE>::new();
 
-    encoder.configure(symbols, symbol_size).unwrap();
+    encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
 
-    decoder.configure(symbols, symbol_size).unwrap();
+    decoder.configure(symbols).unwrap();
 
     // Generate exactly symbols packets for Reed-Solomon decoding
     let mut packets = Vec::new();
@@ -129,8 +129,8 @@ fn bench_rs_decoding(c: &mut Criterion) {
 
     group.bench_function("decode", |b| {
         b.iter(|| {
-            let mut decoder = RsDecoder::<GF256>::new();
-            decoder.configure(symbols, symbol_size).unwrap();
+            let mut decoder = RsDecoder::<GF256, SSIZE>::new();
+            decoder.configure(symbols).unwrap();
 
             for (coeffs, symbol) in &packets {
                 decoder.add_symbol(coeffs, symbol).unwrap();
@@ -148,14 +148,14 @@ fn bench_sparse_rlnc_encoding(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     // Test different sparsity levels
     for sparsity in &[0.1, 0.3, 0.5, 0.8, 1.0] {
         let config = SparseConfig::new(*sparsity);
-        let mut encoder = SparseRlnEncoder::<GF256>::with_sparse_config(config);
-        encoder.configure(symbols, symbol_size).unwrap();
+        let mut encoder = SparseRlnEncoder::<GF256, SSIZE>::with_sparse_config(config);
+        encoder.configure(symbols).unwrap();
         encoder.set_data(&data).unwrap();
 
         group.throughput(Throughput::Bytes(total_bytes));
@@ -174,25 +174,23 @@ fn bench_sparse_rlnc_decoding(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     // Test different sparsity levels
     for sparsity in &[0.1, 0.3, 0.5, 0.8, 1.0] {
         let config = SparseConfig::new(*sparsity);
-        let mut encoder = SparseRlnEncoder::<GF256>::with_sparse_config(config);
-        let mut decoder = RlnDecoder::<GF256>::new();
+        let mut encoder = SparseRlnEncoder::<GF256, SSIZE>::with_sparse_config(config);
+        let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
-        encoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
         encoder.set_data(&data).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        decoder.configure(symbols).unwrap();
 
         // Use deterministic RLNC for reliable benchmarking
         let seed = [42u8; 32];
-        let mut deterministic_encoder = RlnEncoder::<GF256>::with_seed(seed);
-        deterministic_encoder
-            .configure(symbols, symbol_size)
-            .unwrap();
+        let mut deterministic_encoder = RlnEncoder::<GF256, SSIZE>::with_seed(seed);
+        deterministic_encoder.configure(symbols).unwrap();
         deterministic_encoder.set_data(&data).unwrap();
 
         // Generate exactly the required packets using deterministic encoding
@@ -204,8 +202,8 @@ fn bench_sparse_rlnc_decoding(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(total_bytes));
         group.bench_with_input(format!("sparsity_{sparsity}"), sparsity, |b, _| {
             b.iter(|| {
-                let mut decoder = RlnDecoder::<GF256>::new();
-                decoder.configure(symbols, symbol_size).unwrap();
+                let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
+                decoder.configure(symbols).unwrap();
 
                 // Handle potential redundant contributions gracefully
                 let mut added = 0;
@@ -231,17 +229,17 @@ fn bench_streaming_rlnc(c: &mut Criterion) {
 
     let total_bytes = 32_768u64; // 32KB
     let symbols = 32;
-    let symbol_size = 1024; // 32*1024/32 = 1024 bytes
+    const SSIZE: usize = 1024; // 32*1024/32 = 1024 bytes
     let data = vec![0u8; total_bytes as usize];
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256>::new();
-    let mut decoder = RlnDecoder::<GF256>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
-    encoder.configure(symbols, symbol_size).unwrap();
+    encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
-    decoder.configure(symbols, symbol_size).unwrap();
+    decoder.configure(symbols).unwrap();
 
     // Generate packets for streaming
     let mut packets = Vec::new();
@@ -252,8 +250,8 @@ fn bench_streaming_rlnc(c: &mut Criterion) {
 
     group.bench_function("streaming_incremental", |b| {
         b.iter(|| {
-            let mut decoder = RlnDecoder::<GF256>::new();
-            decoder.configure(symbols, symbol_size).unwrap();
+            let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
+            decoder.configure(symbols).unwrap();
 
             for (coeffs, symbol) in &packets {
                 decoder.add_symbol(coeffs, symbol).unwrap();
@@ -275,8 +273,8 @@ fn bench_streaming_rlnc(c: &mut Criterion) {
 
     group.bench_function("streaming_partial_decode", |b| {
         b.iter(|| {
-            let mut decoder = RlnDecoder::<GF256>::new();
-            decoder.configure(symbols, symbol_size).unwrap();
+            let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
+            decoder.configure(symbols).unwrap();
 
             // Add enough symbols for partial decoding
             for (coeffs, symbol) in packets.iter().take(symbols) {
@@ -302,18 +300,18 @@ fn bench_rlnc_recoding(c: &mut Criterion) {
     // Target ~32KB of data (32 * 1024 = 32,768 bytes)
     let total_bytes = 32_768u64;
     let symbols = 32;
-    let symbol_size = 1024;
+    const SSIZE: usize = 1024;
     let data = vec![0u8; total_bytes as usize];
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256>::new();
-    let mut decoder = RlnDecoder::<GF256>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
-    encoder.configure(symbols, symbol_size).unwrap();
+    encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
 
-    decoder.configure(symbols, symbol_size).unwrap();
+    decoder.configure(symbols).unwrap();
 
     // Generate enough packets for recoding (need at least 1 symbol)
     let mut packets = Vec::new();

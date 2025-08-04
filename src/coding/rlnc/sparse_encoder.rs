@@ -8,13 +8,11 @@ use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 use std::marker::PhantomData;
 
 /// Sparse RLNC encoder with configurable sparsity levels
-pub struct SparseRlnEncoder<F: BiniusField> {
+pub struct SparseRlnEncoder<F: BiniusField, const N: usize> {
     /// Number of source symbols
     symbols: usize,
-    /// Size of each symbol in bytes
-    symbol_size: usize,
     /// Original data split into symbols
-    data: Vec<Symbol>,
+    data: Vec<Symbol<N>>,
     /// Sparse coefficient generator
     sparse_generator: SparseCoeffGenerator<F>,
     /// Regular RNG for non-sparse generation
@@ -24,12 +22,11 @@ pub struct SparseRlnEncoder<F: BiniusField> {
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
+impl<F: BiniusField + WithUnderlier<Underlier = u8>, const N: usize> SparseRlnEncoder<F, N> {
     /// Create a new sparse RLNC encoder
     pub fn new() -> Self {
         Self {
             symbols: 0,
-            symbol_size: 0,
             data: Vec::new(),
             sparse_generator: SparseCoeffGenerator::new(SparseConfig::default()),
             rng: CodingRng::new(),
@@ -42,7 +39,6 @@ impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
     pub fn with_sparse_config(config: SparseConfig) -> Self {
         Self {
             symbols: 0,
-            symbol_size: 0,
             data: Vec::new(),
             sparse_generator: SparseCoeffGenerator::new(config),
             rng: CodingRng::new(),
@@ -57,7 +53,6 @@ impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
         seed_bytes.copy_from_slice(&seed);
         Self {
             symbols: 0,
-            symbol_size: 0,
             data: Vec::new(),
             sparse_generator: SparseCoeffGenerator::with_seed(SparseConfig::default(), seed_bytes),
             rng: CodingRng::from_seed(seed_bytes),
@@ -96,7 +91,7 @@ impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
 
     /// Get total size of the data in bytes
     pub fn data_size(&self) -> usize {
-        self.symbols * self.symbol_size
+        self.symbols * N
     }
 
     /// Split data into symbols
@@ -107,9 +102,9 @@ impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
 
         self.data.clear();
         for i in 0..self.symbols {
-            let start = i * self.symbol_size;
-            let end = start + self.symbol_size;
-            let symbol_data = data[start..end].to_vec();
+            let start = i * N;
+            let end = start + N;
+            let symbol_data = data[start..end].try_into().unwrap();
             self.data.push(Symbol::from_data(symbol_data));
         }
 
@@ -141,23 +136,24 @@ impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
     }
 }
 
-impl<F: BiniusField + WithUnderlier<Underlier = u8>> Default for SparseRlnEncoder<F> {
+impl<F: BiniusField + WithUnderlier<Underlier = u8>, const N: usize> Default
+    for SparseRlnEncoder<F, N>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField> Encoder<F> for SparseRlnEncoder<F>
+impl<F: BiniusField, const N: usize> Encoder<F, N> for SparseRlnEncoder<F, N>
 where
     F: WithUnderlier<Underlier = u8>,
 {
-    fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
-        if symbols == 0 || symbol_size == 0 {
+    fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
+        if symbols == 0 || N == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
         self.symbols = symbols;
-        self.symbol_size = symbol_size;
         self.data.clear();
         self.data.reserve(symbols);
 
@@ -165,14 +161,14 @@ where
     }
 
     fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError> {
-        if self.symbols == 0 || self.symbol_size == 0 {
+        if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
 
         self.split_into_symbols(data)
     }
 
-    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Vec<u8>, CodingError> {
+    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Symbol<N>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -181,7 +177,7 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut encoded = Symbol::zero(self.symbol_size);
+        let mut encoded = Symbol::zero();
 
         for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
             if !coeff.is_zero() {
@@ -190,10 +186,10 @@ where
             }
         }
 
-        Ok(encoded.into_inner())
+        Ok(encoded)
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<N>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
@@ -210,10 +206,6 @@ where
 
     fn symbols(&self) -> usize {
         self.symbols
-    }
-
-    fn symbol_size(&self) -> usize {
-        self.symbol_size
     }
 }
 
@@ -234,18 +226,17 @@ mod tests {
 
     #[test]
     fn test_sparse_encoder_configuration() {
-        let mut encoder = SparseRlnEncoder::<GF256>::new();
-        assert!(encoder.configure(4, 16).is_ok());
+        let mut encoder = SparseRlnEncoder::<GF256, 16>::new();
+        assert!(encoder.configure(4).is_ok());
         assert_eq!(encoder.symbols(), 4);
-        assert_eq!(encoder.symbol_size(), 16);
     }
 
     #[test]
     fn test_sparse_encoder_sparse_mode() {
         let config = SparseConfig::new(0.5);
-        let mut encoder = SparseRlnEncoder::<GF256>::with_sparse_config(config);
+        let mut encoder = SparseRlnEncoder::<GF256, 4>::with_sparse_config(config);
 
-        encoder.configure(4, 4).unwrap();
+        encoder.configure(4).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         encoder.set_data(&data).unwrap();
 
@@ -261,10 +252,10 @@ mod tests {
 
     #[test]
     fn test_sparse_encoder_full_density() {
-        let mut encoder = SparseRlnEncoder::<GF256>::new();
+        let mut encoder = SparseRlnEncoder::<GF256, 4>::new();
         encoder.set_sparse_mode(false);
 
-        encoder.configure(5, 4).unwrap();
+        encoder.configure(5).unwrap();
         let data = vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         ];
@@ -279,9 +270,9 @@ mod tests {
     #[test]
     fn test_sparse_encoder_zero_sparsity() {
         let config = SparseConfig::new(0.0).with_min_non_zeros(0);
-        let mut encoder = SparseRlnEncoder::<GF256>::with_sparse_config(config);
+        let mut encoder = SparseRlnEncoder::<GF256, 4>::with_sparse_config(config);
 
-        encoder.configure(4, 4).unwrap();
+        encoder.configure(4).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         encoder.set_data(&data).unwrap();
 
@@ -293,15 +284,14 @@ mod tests {
 
     #[test]
     fn test_sparse_encoder_round_trip() {
-        let mut encoder = SparseRlnEncoder::<GF256>::with_sparse_config(SparseConfig::new(0.6));
-        let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256>::new();
+        let mut encoder = SparseRlnEncoder::<GF256, 4>::with_sparse_config(SparseConfig::new(0.6));
+        let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
-        let symbol_size = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols, symbol_size).unwrap();
-        decoder.configure(symbols, symbol_size).unwrap();
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
 
@@ -321,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_sparse_encoder_sparsity_settings() {
-        let mut encoder = SparseRlnEncoder::<GF256>::new();
+        let mut encoder = SparseRlnEncoder::<GF256, 4>::new();
 
         assert_eq!(encoder.sparsity(), 1.0); // Default is full density
 
@@ -334,11 +324,11 @@ mod tests {
 
     #[test]
     fn test_sparse_encoder_with_seed() {
-        let mut encoder1 = SparseRlnEncoder::<GF256>::with_seed([42; 32]);
-        let mut encoder2 = SparseRlnEncoder::<GF256>::with_seed([42; 32]);
+        let mut encoder1 = SparseRlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder2 = SparseRlnEncoder::<GF256, 4>::with_seed([42; 32]);
 
-        encoder1.configure(3, 4).unwrap();
-        encoder2.configure(3, 4).unwrap();
+        encoder1.configure(3).unwrap();
+        encoder2.configure(3).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         encoder1.set_data(&data).unwrap();
@@ -357,12 +347,12 @@ mod tests {
     #[test]
     fn test_sparse_encoder_performance_comparison() {
         let symbols = 100;
-        let symbol_size = 1024;
-        let data = vec![0u8; symbols * symbol_size];
+        const SSIZE: usize = 1024;
+        let data = vec![0u8; symbols * SSIZE];
 
         // Test full density - allow small tolerance for edge cases
-        let mut full_encoder = SparseRlnEncoder::<GF256>::new();
-        full_encoder.configure(symbols, symbol_size).unwrap();
+        let mut full_encoder = SparseRlnEncoder::<GF256, SSIZE>::new();
+        full_encoder.configure(symbols).unwrap();
         full_encoder.set_data(&data).unwrap();
 
         let coeffs = full_encoder.generate_coefficients();
@@ -375,8 +365,8 @@ mod tests {
 
         // Test 10% sparsity - allow small tolerance due to rounding
         let mut sparse_encoder =
-            SparseRlnEncoder::<GF256>::with_sparse_config(SparseConfig::new(0.1));
-        sparse_encoder.configure(symbols, symbol_size).unwrap();
+            SparseRlnEncoder::<GF256, SSIZE>::with_sparse_config(SparseConfig::new(0.1));
+        sparse_encoder.configure(symbols).unwrap();
         sparse_encoder.set_data(&data).unwrap();
 
         let coeffs = sparse_encoder.generate_coefficients();
