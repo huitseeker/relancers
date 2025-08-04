@@ -1,6 +1,7 @@
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
+use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 use binius_maybe_rayon::prelude::*;
 use std::marker::PhantomData;
@@ -80,7 +81,7 @@ impl<F: BiniusField> Default for RlnEncoder<F> {
 
 impl<F: BiniusField> Encoder<F> for RlnEncoder<F>
 where
-    F: From<u8> + Into<u8>,
+    F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
         if symbols == 0 || symbol_size == 0 {
@@ -122,11 +123,11 @@ where
                     for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
                         if !coeff.is_zero() {
                             let symbol_bytes = symbol.as_slice();
-                            let byte_val = F::from(symbol_bytes[byte_idx]);
+                            let byte_val = F::from_underlier(symbol_bytes[byte_idx]);
                             byte_sum += *coeff * byte_val;
                         }
                     }
-                    byte_sum.into()
+                    byte_sum.to_underlier()
                 })
                 .collect();
 

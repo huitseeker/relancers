@@ -3,6 +3,7 @@
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
+use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 use std::marker::PhantomData;
 
@@ -89,10 +90,7 @@ impl<F: BiniusField> SeedRlnEncoder<F> {
     }
 
     /// Generate coefficients deterministically from seed and packet index
-    fn generate_coefficients(&mut self, packet_index: u64) -> Vec<F>
-    where
-        F: From<u8>,
-    {
+    fn generate_coefficients(&mut self, packet_index: u64) -> Vec<F> {
         // Create deterministic seed based on master seed and packet index
         let mut combined_seed = [0u8; 32];
         combined_seed[..4].copy_from_slice(&self.current_seed.to_le_bytes());
@@ -111,7 +109,7 @@ impl<F: BiniusField> Default for SeedRlnEncoder<F> {
 
 impl<F: BiniusField> Encoder<F> for SeedRlnEncoder<F>
 where
-    F: From<u8> + Into<u8>,
+    F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
         if symbols == 0 || symbol_size == 0 {
@@ -135,10 +133,7 @@ where
         self.split_into_symbols(data)
     }
 
-    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Vec<u8>, CodingError>
-    where
-        F: From<u8>,
-    {
+    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Vec<u8>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -159,10 +154,7 @@ where
         Ok(encoded.into_inner())
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError>
-    where
-        F: From<u8>,
-    {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }

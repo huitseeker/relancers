@@ -2,7 +2,7 @@
 
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
-use binius_field::Field as BiniusField;
+use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 // Note: Using our own Reed-Solomon implementation as Binius RS functions aren't available directly
 // The implementation uses systematic Vandermonde matrices for compatibility
 use std::marker::PhantomData;
@@ -81,7 +81,7 @@ impl<F: BiniusField> Default for RsEncoder<F> {
 
 impl<F: BiniusField> Encoder<F> for RsEncoder<F>
 where
-    F: From<u8> + Into<u8>,
+    F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
         if symbols == 0 || symbol_size == 0 {
@@ -137,7 +137,7 @@ where
 
         // Generate evaluation point (symbol index)
         let index = (self.data.len() % self.total_symbols) as u8;
-        let point = F::from(index);
+        let point = F::from_underlier(index);
         let coefficients = self.vandermonde_row(point, self.symbols);
         let symbol = self.encode_symbol(&coefficients)?;
 
