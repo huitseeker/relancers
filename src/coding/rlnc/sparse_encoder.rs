@@ -4,7 +4,7 @@ use crate::coding::sparse::{SparseCoeffGenerator, SparseConfig};
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
-use binius_field::Field as BiniusField;
+use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 use std::marker::PhantomData;
 
 /// Sparse RLNC encoder with configurable sparsity levels
@@ -24,7 +24,7 @@ pub struct SparseRlnEncoder<F: BiniusField> {
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField> SparseRlnEncoder<F> {
+impl<F: BiniusField + WithUnderlier<Underlier = u8>> SparseRlnEncoder<F> {
     /// Create a new sparse RLNC encoder
     pub fn new() -> Self {
         Self {
@@ -117,10 +117,7 @@ impl<F: BiniusField> SparseRlnEncoder<F> {
     }
 
     /// Generate coefficients based on current mode
-    pub fn generate_coefficients(&mut self) -> Vec<F>
-    where
-        F: From<u8>,
-    {
+    pub fn generate_coefficients(&mut self) -> Vec<F> {
         if self.use_sparse {
             self.sparse_generator.generate_coefficients(self.symbols)
         } else {
@@ -144,7 +141,7 @@ impl<F: BiniusField> SparseRlnEncoder<F> {
     }
 }
 
-impl<F: BiniusField> Default for SparseRlnEncoder<F> {
+impl<F: BiniusField + WithUnderlier<Underlier = u8>> Default for SparseRlnEncoder<F> {
     fn default() -> Self {
         Self::new()
     }
@@ -152,7 +149,7 @@ impl<F: BiniusField> Default for SparseRlnEncoder<F> {
 
 impl<F: BiniusField> Encoder<F> for SparseRlnEncoder<F>
 where
-    F: From<u8> + Into<u8>,
+    F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
         if symbols == 0 || symbol_size == 0 {

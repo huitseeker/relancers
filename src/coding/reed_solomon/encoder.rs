@@ -2,7 +2,7 @@
 
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
-use binius_field::Field as BiniusField;
+use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 // Note: Using our own Reed-Solomon implementation as Binius RS functions aren't available directly
 // The implementation uses systematic Vandermonde matrices for compatibility
 use std::marker::PhantomData;
@@ -81,7 +81,7 @@ impl<F: BiniusField> Default for RsEncoder<F> {
 
 impl<F: BiniusField> Encoder<F> for RsEncoder<F>
 where
-    F: From<u8> + Into<u8>,
+    F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
         if symbols == 0 || symbol_size == 0 {
@@ -114,16 +114,29 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut encoded = Symbol::zero(self.symbol_size);
-
-        for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
-            if !coeff.is_zero() {
-                let scaled = symbol.scaled(*coeff);
-                encoded.add_assign(&scaled);
+        #[inline(always)]
+        fn encode_byte<F>(coefficients: &[F], symbols: &[Symbol], byte_idx: usize) -> u8
+        where
+            F: BiniusField + WithUnderlier<Underlier = u8>,
+        {
+            let mut byte_sum = F::ZERO;
+            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
+                if !coeff.is_zero() {
+                    let byte = symbol.as_slice()[byte_idx];
+                    if byte != 0 {
+                        let field_byte = F::from_underlier(byte);
+                        byte_sum += *coeff * field_byte;
+                    }
+                }
             }
+            byte_sum.to_underlier()
         }
 
-        Ok(encoded.into_inner())
+        let mut result = vec![0u8; self.symbol_size];
+        for byte_idx in 0..self.symbol_size {
+            result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
+        }
+        Ok(result)
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError> {
@@ -137,7 +150,7 @@ where
 
         // Generate evaluation point (symbol index)
         let index = (self.data.len() % self.total_symbols) as u8;
-        let point = F::from(index);
+        let point = F::from_underlier(index);
         let coefficients = self.vandermonde_row(point, self.symbols);
         let symbol = self.encode_symbol(&coefficients)?;
 

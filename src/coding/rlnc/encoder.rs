@@ -1,6 +1,7 @@
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
+use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 use binius_maybe_rayon::prelude::*;
 use std::marker::PhantomData;
@@ -80,7 +81,7 @@ impl<F: BiniusField> Default for RlnEncoder<F> {
 
 impl<F: BiniusField> Encoder<F> for RlnEncoder<F>
 where
-    F: From<u8> + Into<u8>,
+    F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize, symbol_size: usize) -> Result<(), CodingError> {
         if symbols == 0 || symbol_size == 0 {
@@ -112,37 +113,41 @@ where
             return Err(CodingError::NoDataSet);
         }
 
+        // Use optimized encoding with specialized conversion paths
+        #[inline(always)]
+        fn encode_byte<F>(coefficients: &[F], symbols: &[Symbol], byte_idx: usize) -> u8
+        where
+            F: BiniusField + WithUnderlier<Underlier = u8>,
+        {
+            let mut byte_sum = F::ZERO;
+            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
+                if !coeff.is_zero() {
+                    let byte = symbol.as_slice()[byte_idx];
+                    if byte != 0 {
+                        let field_byte = F::from_underlier(byte);
+                        byte_sum += *coeff * field_byte;
+                    }
+                }
+            }
+            byte_sum.to_underlier()
+        }
+
         // Use parallel processing for encoding when there are many symbols
         if self.symbols >= 32 {
             // Parallel encoding for better performance with large data
             let encoded_data: Vec<u8> = (0..self.symbol_size)
                 .into_par_iter()
-                .map(|byte_idx| {
-                    let mut byte_sum = F::ZERO;
-                    for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
-                        if !coeff.is_zero() {
-                            let symbol_bytes = symbol.as_slice();
-                            let byte_val = F::from(symbol_bytes[byte_idx]);
-                            byte_sum += *coeff * byte_val;
-                        }
-                    }
-                    byte_sum.into()
-                })
+                .map(|byte_idx| encode_byte(coefficients, &self.data, byte_idx))
                 .collect();
 
             Ok(encoded_data)
         } else {
-            // Sequential encoding for small data to avoid overhead
-            let mut encoded = Symbol::zero(self.symbol_size);
-
-            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
-                if !coeff.is_zero() {
-                    let scaled = symbol.scaled(*coeff);
-                    encoded.add_assign(&scaled);
-                }
+            // Sequential encoding with optimized path
+            let mut result = vec![0u8; self.symbol_size];
+            for byte_idx in 0..self.symbol_size {
+                result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
             }
-
-            Ok(encoded.into_inner())
+            Ok(result)
         }
     }
 

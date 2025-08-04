@@ -10,7 +10,7 @@ keywords = ["network-coding", "rlnc", "reed-solomon", "error-correction", "strea
 categories = ["algorithms", "encoding", "network-programming"]
 
 [dependencies]
-binius_field = { git="https://github.com/IrreducibleOSS/binius.git", rev="1b09443bbb08b13e0116be81ab09742589aed267" }
+binius_field = { git = "https://github.com/IrreducibleOSS/binius.git", rev = "1b09443bbb08b13e0116be81ab09742589aed267", version = "0.2.0" }
 binius_core = { git="https://github.com/IrreducibleOSS/binius.git", rev="1b09443bbb08b13e0116be81ab09742589aed267" }
 binius_maybe_rayon = { git="https://github.com/IrreducibleOSS/binius.git", rev="1b09443bbb08b13e0116be81ab09742589aed267" }
 # Should match binius' version
@@ -27,6 +27,11 @@ tempfile = "3.8"
 [[bench]]
 name = "criterion"
 path = "benches/criterion.rs"
+harness = false
+
+[[bench]]
+name = "conversion_benchmark"
+path = "benches/conversion_benchmark.rs"
 harness = false
 
 [features]
