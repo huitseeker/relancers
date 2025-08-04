@@ -1,3 +1,4 @@
+use crate::coding::rlnc::optimized_matrix::OptimizedMatrix;
 use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
 use binius_field::Field as BiniusField;
@@ -13,8 +14,8 @@ pub struct RlnDecoder<F: BiniusField> {
     received_symbols: Vec<Symbol>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
-    /// Gaussian elimination matrix
-    matrix: Vec<Vec<F>>,
+    /// Optimized Gaussian elimination matrix with RREF maintenance
+    matrix: OptimizedMatrix<F>,
     /// Decoded symbols
     decoded_symbols: Vec<Symbol>,
     /// Track which symbols are decoded
@@ -36,7 +37,7 @@ impl<F: BiniusField> RlnDecoder<F> {
             symbol_size: 0,
             received_symbols: Vec::new(),
             coefficients: Vec::new(),
-            matrix: Vec::new(),
+            matrix: OptimizedMatrix::new(0),
             decoded_symbols: Vec::new(),
             decoded: Vec::new(),
             current_rank: 0,
@@ -49,14 +50,15 @@ impl<F: BiniusField> RlnDecoder<F> {
     /// Initialize the Gaussian elimination matrix
     fn init_matrix(&mut self) {
         self.matrix.clear();
-        self.matrix
-            .resize(self.symbols, vec![F::ZERO; self.symbols]);
+        self.matrix = OptimizedMatrix::new(self.symbols);
 
-        for (i, coeff_vec) in self.coefficients.iter().enumerate() {
-            if i < self.symbols {
-                self.matrix[i].copy_from_slice(coeff_vec);
-            }
+        // Add all coefficients to the optimized matrix
+        for coeff_vec in &self.coefficients {
+            let _ = self.matrix.add_row(coeff_vec);
         }
+
+        // Update current rank to match matrix rank
+        self.current_rank = self.matrix.rank();
     }
 
     /// Check if a new contribution increases the rank of the decoding matrix
@@ -65,25 +67,8 @@ impl<F: BiniusField> RlnDecoder<F> {
             return false;
         }
 
-        // Check if the new coefficients are linearly independent of existing rows
-        // by applying the same Gaussian elimination process without cloning
-        let mut temp_coefficients = coefficients.to_vec();
-
-        // Apply existing row operations to the new coefficients
-        #[allow(clippy::needless_range_loop)]
-        for col in 0..self.symbols {
-            if let Some(pivot_row) = self.pivot_rows[col] {
-                let factor = temp_coefficients[col];
-                if !factor.is_zero() {
-                    for col_idx in col..self.symbols {
-                        temp_coefficients[col_idx] += self.matrix[pivot_row][col_idx] * factor;
-                    }
-                }
-            }
-        }
-
-        // Check if any coefficient in the transformed vector is non-zero
-        temp_coefficients.iter().any(|c| !c.is_zero())
+        // Use the optimized matrix's rank increase check
+        self.matrix.check_rank_increase(coefficients)
     }
 
     /// Perform incremental Gaussian elimination and diagonalization
@@ -97,81 +82,105 @@ impl<F: BiniusField> RlnDecoder<F> {
 
         let row_idx = self.coefficients.len() - 1;
         let coefficients = &self.coefficients[row_idx];
-        let symbol = &self.received_symbols[row_idx];
+        let _symbol = &self.received_symbols[row_idx];
 
-        // Quick rank check - skip if no rank increase
-        if !self.check_rank_increase(coefficients) {
+        // Use optimized matrix to add row and maintain RREF
+        let rank_increase = self.matrix.add_row(coefficients)?;
+
+        if !rank_increase {
             // Remove the last added coefficients and symbol as they don't contribute
             self.coefficients.pop();
             self.received_symbols.pop();
             return Ok(());
         }
 
-        // Add new row to matrix
-        if self.matrix.len() <= row_idx {
-            self.matrix.resize(row_idx + 1, vec![F::ZERO; self.symbols]);
-        }
-        self.matrix[row_idx].copy_from_slice(coefficients);
+        // Update current rank from optimized matrix
+        self.current_rank = self.matrix.rank();
 
-        // Perform row operations to maintain upper triangular form
-        let current_row = row_idx;
-        let mut new_symbol = symbol.clone();
-
+        // Update pivot positions and decoded symbols
         for col in 0..self.symbols {
-            if self.matrix[current_row][col].is_zero() {
-                continue;
-            }
-
-            if let Some(pivot_row) = self.pivot_rows[col] {
-                // Row operation: current_row = current_row - factor * pivot_row
-                if pivot_row != current_row {
-                    let factor = self.matrix[current_row][col];
-                    for col_idx in col..self.symbols {
-                        self.matrix[current_row][col_idx] = self.matrix[current_row][col_idx]
-                            + self.matrix[pivot_row][col_idx] * factor;
-                    }
-                    new_symbol.add_assign(&self.received_symbols[pivot_row].scaled(factor));
-                }
-            } else {
-                // This is a new pivot
-                self.pivot_rows[col] = Some(current_row);
-                self.current_rank += 1;
-
-                // Normalize the pivot row
-                let pivot_val = self.matrix[current_row][col];
-                let pivot_inv = pivot_val.invert().ok_or(CodingError::DecodingFailed)?;
-
-                for col_idx in col..self.symbols {
-                    self.matrix[current_row][col_idx] *= pivot_inv;
-                }
-                new_symbol.scale(pivot_inv);
-
-                // Update partially decoded symbols
-                self.partial_symbols[col] = Some(new_symbol.clone());
+            if let Some(pivot_row) = self.matrix.pivot_row(col) {
+                self.pivot_rows[col] = Some(pivot_row);
                 self.decoded[col] = true;
 
-                break;
+                // Update partially decoded symbols based on RREF
+                let mut new_symbol = Symbol::zero(self.symbol_size);
+
+                // Build the solution for this column
+                let row_coefficients = self.matrix.get_row(pivot_row);
+                for (coeff_idx, coeff) in row_coefficients.iter().enumerate() {
+                    if !coeff.is_zero() && coeff_idx < self.received_symbols.len() {
+                        let scaled = self.received_symbols[coeff_idx].scaled(*coeff);
+                        new_symbol.add_assign(&scaled);
+                    }
+                }
+
+                self.partial_symbols[col] = Some(new_symbol);
             }
         }
 
         Ok(())
     }
 
-    /// Perform Gaussian elimination to solve the system
+    /// Perform Gaussian elimination to solve the system using the optimized matrix
     fn gaussian_elimination(&mut self) -> Result<Vec<Symbol>, CodingError>
     where
         F: From<u8> + Into<u8>,
     {
-        let matrix = &mut self.matrix;
-        let mut symbols = self.received_symbols.clone();
-        let mut rank = 0;
+        if !self.can_decode() {
+            return Err(CodingError::InsufficientData);
+        }
+
+        // Build a temporary matrix for solving the system
+        let mut temp_matrix = OptimizedMatrix::new(self.symbols);
+
+        // Add all coefficients to the temporary matrix
+        for coeff_vec in &self.coefficients {
+            let _ = temp_matrix.add_row(coeff_vec);
+        }
+
+        if !temp_matrix.is_full_rank() {
+            return Err(CodingError::InsufficientData);
+        }
+
+        // Now we need to solve the system Ax = b where:
+        // A is our coefficient matrix, b is our received symbols
+
+        // Create a mapping from pivot positions to original symbols
+        let mut pivot_map = vec![0; self.symbols];
+        let mut used_pivots = vec![false; self.coefficients.len()];
+
+        for col in 0..self.symbols {
+            if let Some(pivot_row) = temp_matrix.pivot_row(col) {
+                pivot_map[col] = pivot_row;
+                used_pivots[pivot_row] = true;
+            }
+        }
+
+        // Ensure we have exactly the required symbols
+        let mut selected_symbols = Vec::new();
+        let mut selected_coefficients = Vec::new();
+
+        for src_idx in 0..self.symbols {
+            let pivot_row = pivot_map[src_idx];
+            selected_symbols.push(self.received_symbols[pivot_row].clone());
+            selected_coefficients.push(self.coefficients[pivot_row].clone());
+        }
+
+        // Now solve the system using the selected symbols
+        let mut matrix = vec![vec![F::ZERO; self.symbols]; self.symbols];
+        for (i, coeffs) in selected_coefficients.iter().enumerate() {
+            matrix[i].copy_from_slice(coeffs);
+        }
+
+        // Perform Gaussian elimination on the selected matrix
+        let mut symbols = selected_symbols;
         let n = self.symbols;
 
         for col in 0..n {
             // Find pivot
             let mut pivot = None;
-            #[allow(clippy::needless_range_loop)]
-            for row in rank..matrix.len() {
+            for row in col..n {
                 if !matrix[row][col].is_zero() {
                     pivot = Some(row);
                     break;
@@ -180,45 +189,34 @@ impl<F: BiniusField> RlnDecoder<F> {
 
             if let Some(pivot_row) = pivot {
                 // Swap rows
-                matrix.swap(rank, pivot_row);
-                symbols.swap(rank, pivot_row);
+                matrix.swap(col, pivot_row);
+                symbols.swap(col, pivot_row);
 
                 // Normalize pivot row
-                let pivot_val = matrix[rank][col];
+                let pivot_val = matrix[col][col];
                 let pivot_inv = pivot_val.invert().ok_or(CodingError::DecodingFailed)?;
 
                 for col_idx in col..n {
-                    matrix[rank][col_idx] *= pivot_inv;
+                    matrix[col][col_idx] *= pivot_inv;
                 }
-                symbols[rank].scale(pivot_inv);
+                symbols[col].scale(pivot_inv);
 
                 // Eliminate other rows
-                for row in 0..matrix.len() {
-                    if row != rank && !matrix[row][col].is_zero() {
+                for row in 0..n {
+                    if row != col && !matrix[row][col].is_zero() {
                         let factor = matrix[row][col];
                         for col_idx in col..n {
                             matrix[row][col_idx] =
-                                matrix[row][col_idx] + matrix[rank][col_idx] * factor;
+                                matrix[row][col_idx] + matrix[col][col_idx] * factor;
                         }
-                        let scaled = symbols[rank].scaled(factor);
+                        let scaled = symbols[col].scaled(factor);
                         symbols[row].add_assign(&scaled);
                     }
                 }
-
-                rank += 1;
-            }
-
-            if rank == n {
-                break;
             }
         }
 
-        if rank < n {
-            return Err(CodingError::InsufficientData);
-        }
-
-        // Extract the first n symbols as the decoded result
-        Ok(symbols.into_iter().take(n).collect())
+        Ok(symbols)
     }
 }
 
@@ -241,7 +239,7 @@ where
         self.symbol_size = symbol_size;
         self.received_symbols.clear();
         self.coefficients.clear();
-        self.matrix.clear();
+        self.matrix = OptimizedMatrix::new(symbols);
         self.decoded_symbols.clear();
         self.decoded.clear();
         self.decoded.resize(symbols, false);

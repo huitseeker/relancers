@@ -47,7 +47,6 @@ impl<F: BiniusField> RsEncoder<F> {
         let mut row = vec![F::ONE; k];
         let mut power = F::ONE;
 
-        #[allow(clippy::needless_range_loop)]
         for i in 1..k {
             power *= x;
             row[i] = power;
