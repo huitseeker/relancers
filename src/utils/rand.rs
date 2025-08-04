@@ -11,7 +11,7 @@ impl CodingRng {
     /// Create a new RNG with a random seed
     pub fn new() -> Self {
         Self {
-            rng: ChaCha8Rng::from_entropy(),
+            rng: ChaCha8Rng::from_os_rng(),
         }
     }
 
@@ -25,29 +25,21 @@ impl CodingRng {
     /// Generate random coefficients for network coding
     pub fn generate_coefficients<F>(&mut self, count: usize) -> Vec<F>
     where
-        F: BiniusField + From<u8>,
+        F: BiniusField,
     {
-        use rand::Rng;
-
-        (0..count)
-            .map(|_| {
-                let mut bytes = [0u8; 1];
-                self.rng.fill(&mut bytes);
-                F::from(bytes[0])
-            })
-            .collect()
+        let mut res = Vec::with_capacity(count);
+        for _ in 0..count {
+            res.push(F::random(&mut self.rng));
+        }
+        res
     }
 
     /// Generate a single random coefficient
     pub fn generate_coefficient<F>(&mut self) -> F
     where
-        F: BiniusField + From<u8>,
+        F: BiniusField,
     {
-        use rand::Rng;
-
-        let mut bytes = [0u8; 1];
-        self.rng.fill(&mut bytes);
-        F::from(bytes[0])
+        F::random(&mut self.rng)
     }
 
     /// Shuffle a slice in place using Fisher-Yates algorithm
