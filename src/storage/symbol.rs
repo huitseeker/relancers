@@ -118,7 +118,7 @@ impl From<Symbol> for Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use binius_field::BinaryField8b as GF256;
+    use binius_field::AESTowerField8b as GF256;
 
     #[test]
     fn test_symbol_creation() {
@@ -148,12 +148,12 @@ mod tests {
         let mut symbol = Symbol::from_data(vec![1, 2, 3, 4, 5]);
         symbol.scale(GF256::from(2));
 
-        // Note: This uses actual Binius GF(256) multiplication
+        // Note: This uses actual Binius GF(256) multiplication with AESTowerField8b
         // Results depend on actual field arithmetic
         let result = symbol.as_slice();
         assert_eq!(result[0], 2); // 1 * 2 = 2
-        assert_eq!(result[1], 3); // 2 * 2 = 3 (actual Binius result)
-        assert_eq!(result[2], 1); // 3 * 2 = 1 (actual Binius result)
+        assert_eq!(result[1], 4); // 2 * 2 = 4 (actual AESTowerField8b result)
+        assert_eq!(result[2], 6); // 3 * 2 = 6 (actual AESTowerField8b result)
         assert_eq!(result[3], 8); // 4 * 2 = 8
         assert_eq!(result[4], 10); // 5 * 2 = 10
     }

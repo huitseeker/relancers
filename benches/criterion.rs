@@ -1,11 +1,11 @@
-use binius_field::BinaryField8b as GF256;
+use binius_field::AESTowerField8b as GF256;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use rand::Rng;
 use relancers::coding::reed_solomon::{RsDecoder, RsEncoder};
 use relancers::coding::rlnc::SparseRlnEncoder;
 use relancers::coding::rlnc::{RlnDecoder, RlnEncoder};
 use relancers::coding::sparse::SparseConfig;
-use relancers::coding::traits::{Decoder, Encoder, RecodingDecoder, StreamingDecoder};
+use relancers::coding::traits::{Decoder, Encoder, StreamingDecoder};
 
 fn bench_rlnc_encoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("RLNC Encoding");
