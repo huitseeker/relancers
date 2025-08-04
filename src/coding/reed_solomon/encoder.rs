@@ -114,16 +114,29 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut encoded = Symbol::zero(self.symbol_size);
-
-        for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
-            if !coeff.is_zero() {
-                let scaled = symbol.scaled(*coeff);
-                encoded.add_assign(&scaled);
+        #[inline(always)]
+        fn encode_byte<F>(coefficients: &[F], symbols: &[Symbol], byte_idx: usize) -> u8
+        where
+            F: BiniusField + WithUnderlier<Underlier = u8>,
+        {
+            let mut byte_sum = F::ZERO;
+            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
+                if !coeff.is_zero() {
+                    let byte = symbol.as_slice()[byte_idx];
+                    if byte != 0 {
+                        let field_byte = F::from_underlier(byte);
+                        byte_sum += *coeff * field_byte;
+                    }
+                }
             }
+            byte_sum.to_underlier()
         }
 
-        Ok(encoded.into_inner())
+        let mut result = vec![0u8; self.symbol_size];
+        for byte_idx in 0..self.symbol_size {
+            result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
+        }
+        Ok(result)
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, Vec<u8>), CodingError> {

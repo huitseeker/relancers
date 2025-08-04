@@ -29,6 +29,11 @@ name = "criterion"
 path = "benches/criterion.rs"
 harness = false
 
+[[bench]]
+name = "conversion_benchmark"
+path = "benches/conversion_benchmark.rs"
+harness = false
+
 [features]
 default = ["serde"]
 serde = ["dep:serde"]
