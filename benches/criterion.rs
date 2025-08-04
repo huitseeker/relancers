@@ -331,9 +331,10 @@ fn bench_rlnc_recoding(c: &mut Criterion) {
             use relancers::coding::traits::RecodingDecoder;
 
             // Generate random recoding coefficients
-            let mut rng = rand::thread_rng();
-            let recode_coeffs: Vec<GF256> =
-                (0..symbols).map(|_| GF256::from(rng.gen::<u8>())).collect();
+            let mut rng = rand::rng();
+            let recode_coeffs: Vec<GF256> = (0..symbols)
+                .map(|_| GF256::from(rng.random::<u8>()))
+                .collect();
 
             let recoded_symbol = decoder.recode(&recode_coeffs).unwrap();
             black_box(recoded_symbol);
