@@ -21,10 +21,11 @@ Requires nightly Rust for SIMD optimizations.
 ## Quick Start
 
 ```rust
-use relancers::coding::{RlnEncoder, RlnDecoder, Encoder, Decoder};
+use relancers::coding::{RlnEncoder, Encoder};
 use binius_field::AESTowerField8b as GF256;
 
 // 3× faster than dense RLNC with sparse coefficients
+let data = vec![1u8; 16 * 1024]; // 16KB of data
 let mut encoder = RlnEncoder::<GF256, 1024>::new();
 encoder.configure(16).unwrap();
 encoder.set_data(&data).unwrap();
@@ -48,6 +49,7 @@ let (coeffs, symbol) = encoder.encode_packet().unwrap();
 use relancers::coding::{RlnEncoder, Encoder};
 use binius_field::AESTowerField8b as GF256;
 
+let data = vec![1u8; 16 * 1024]; // 16KB of data
 let mut encoder = RlnEncoder::<GF256, 1024>::new();
 encoder.configure(16).unwrap();
 encoder.set_data(&data).unwrap();
@@ -56,14 +58,19 @@ let (coefficients, symbol) = encoder.encode_packet().unwrap();
 
 ### Sparse RLNC
 ```rust
-use relancers::coding::{RlnEncoder, SparseConfig};
+use relancers::coding::{RlnEncoder, Encoder};
 use binius_field::AESTowerField8b as GF256;
 
+let data = vec![1u8; 16 * 1024]; // 16KB of data
 let mut encoder = RlnEncoder::<GF256, 1024>::new();
 encoder.configure_with_sparsity(16, Some(0.3)).unwrap(); // 30% sparsity
-// or
-encoder.configure(16).unwrap();
-encoder.set_sparsity(0.3); // Configure sparsity after configuration
+encoder.set_data(&data).unwrap();
+
+// or configure sparsity separately
+let mut encoder2 = RlnEncoder::<GF256, 1024>::new();
+encoder2.configure(16).unwrap();
+encoder2.set_sparsity(0.3);
+encoder2.set_data(&data).unwrap();
 ```
 
 ### Seeded Encoders for Deterministic Testing
@@ -76,14 +83,15 @@ use binius_field::AESTowerField8b as GF256;
 
 // Deterministic encoding with seed
 let seed = [42u8; 32]; // Non-zero seed required
-let mut encoder = RlnEncoder::<GF256, 1024>::with_seed(seed);
+let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+let mut encoder = RlnEncoder::<GF256, 2>::with_seed(seed);
 encoder.configure(4).unwrap();
-encoder.set_data(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+encoder.set_data(&data).unwrap();
 
 // Same seed produces identical results
-let mut encoder2 = RlnEncoder::<GF256, 1024>::with_seed(seed);
+let mut encoder2 = RlnEncoder::<GF256, 2>::with_seed(seed);
 encoder2.configure(4).unwrap();
-encoder2.set_data(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+encoder2.set_data(&data).unwrap();
 
 let (coeffs1, symbol1) = encoder.encode_packet().unwrap();
 let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
@@ -95,9 +103,10 @@ assert_eq!(symbol1, symbol2); // Identical symbols
 ⚠️ **Note**: The Reed-Solomon implementation is for testing purposes only and has not been optimized for performance.
 
 ```rust
-use relancers::coding::{RsEncoder, RsDecoder, Encoder, Decoder};
+use relancers::coding::{RsEncoder, Encoder};
 use binius_field::AESTowerField8b as GF256;
 
+let data = vec![1u8; 16 * 1024]; // 16KB of data
 let mut encoder = RsEncoder::<GF256, 1024>::new();
 encoder.configure(16).unwrap();
 encoder.set_data(&data).unwrap();

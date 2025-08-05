@@ -51,16 +51,17 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     /// use binius_field::AESTowerField8b as GF256;
     ///
     /// // Deterministic encoding with non-zero seed
-    /// let mut encoder = RlnEncoder::<GF256, 1024>::with_seed([42; 32]);
+    /// let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+    /// let mut encoder = RlnEncoder::<GF256, 2>::with_seed([42; 32]);
     /// encoder.configure(4).unwrap();
-    /// encoder.set_data(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+    /// encoder.set_data(&data).unwrap();
     ///
     /// // Will produce identical coefficients across runs
     /// let (coeffs1, symbol1) = encoder.encode_packet().unwrap();
     ///
-    /// let mut encoder2 = RlnEncoder::<GF256, 1024>::with_seed([42; 32]);
+    /// let mut encoder2 = RlnEncoder::<GF256, 2>::with_seed([42; 32]);
     /// encoder2.configure(4).unwrap();
-    /// encoder2.set_data(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+    /// encoder2.set_data(&data).unwrap();
     /// let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
     ///
     /// assert_eq!(coeffs1, coeffs2);
