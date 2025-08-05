@@ -900,6 +900,104 @@ mod tests {
     }
 
     #[test]
+    fn test_seeded_encoder_decoder_compatibility() {
+        // Test that seeded encoders produce outputs that decoders can decode
+        let mut encoder = RlnEncoder::<GF256, 16>::with_seed([42; 32]);
+        let mut decoder = RlnDecoder::<GF256, 16>::new();
+
+        let symbols = 4;
+        let data = vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+            47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+        ];
+
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
+
+        encoder.set_data(&data).unwrap();
+
+        // Generate exactly the required symbols using seeded RNG
+        let mut packets = Vec::new();
+        for _ in 0..symbols {
+            packets.push(encoder.encode_packet().unwrap());
+        }
+
+        // Verify deterministic behavior - same seed should produce same packets
+        let mut encoder2 = RlnEncoder::<GF256, 16>::with_seed([42; 32]);
+        encoder2.configure(symbols).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        for (original_coeffs, original_symbol) in &packets {
+            let (new_coeffs, new_symbol) = encoder2.encode_packet().unwrap();
+            assert_eq!(original_coeffs, &new_coeffs);
+            assert_eq!(original_symbol, &new_symbol);
+        }
+
+        // Decode using the packets
+        for (coeffs, symbol) in packets {
+            decoder.add_symbol(&coeffs, &symbol).unwrap();
+        }
+
+        let decoded = decoder.decode().unwrap();
+        assert_eq!(
+            decoded, data,
+            "Seeded encoder should produce decodable output"
+        );
+    }
+
+    #[test]
+    fn test_different_seeds_produce_different_outputs() {
+        let symbols = 3;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed([1; 32]);
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([2; 32]);
+
+        encoder1.configure(symbols).unwrap();
+        encoder2.configure(symbols).unwrap();
+
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        let (coeffs1, symbol1) = encoder1.encode_packet().unwrap();
+        let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
+
+        // Different seeds should produce different outputs
+        assert!(coeffs1 != coeffs2 || symbol1 != symbol2);
+
+        // But both should be valid for decoding
+        let mut decoder1 = RlnDecoder::<GF256, 4>::new();
+        let mut decoder2 = RlnDecoder::<GF256, 4>::new();
+
+        decoder1.configure(symbols).unwrap();
+        decoder2.configure(symbols).unwrap();
+
+        // Collect enough packets from each encoder
+        let mut packets1 = Vec::new();
+        let mut packets2 = Vec::new();
+
+        for _ in 0..symbols {
+            packets1.push(encoder1.encode_packet().unwrap());
+            packets2.push(encoder2.encode_packet().unwrap());
+        }
+
+        // Decode
+        for (coeffs, symbol) in packets1 {
+            decoder1.add_symbol(&coeffs, &symbol).unwrap();
+        }
+        for (coeffs, symbol) in packets2 {
+            decoder2.add_symbol(&coeffs, &symbol).unwrap();
+        }
+
+        let decoded1 = decoder1.decode().unwrap();
+        let decoded2 = decoder2.decode().unwrap();
+
+        assert_eq!(decoded1, data);
+        assert_eq!(decoded2, data);
+    }
+
+    #[test]
     fn test_recoding_functionality() {
         use crate::coding::traits::RecodingDecoder;
         use crate::utils::CodingRng;

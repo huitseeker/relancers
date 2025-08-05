@@ -27,6 +27,18 @@ fn bench_rlnc_encoding(c: &mut Criterion) {
             black_box((_coeffs, _symbol));
         })
     });
+
+    // Add seeded encoder benchmark
+    let mut seeded_encoder = RlnEncoder::<GF256, SSIZE>::with_seed([42u8; 32]);
+    seeded_encoder.configure(symbols).unwrap();
+    seeded_encoder.set_data(&data).unwrap();
+
+    group.bench_function("encode packet (seeded)", |b| {
+        b.iter(|| {
+            let (_coeffs, _symbol) = seeded_encoder.encode_packet().unwrap();
+            black_box((_coeffs, _symbol));
+        })
+    });
     group.finish();
 }
 
@@ -352,6 +364,41 @@ fn bench_rlnc_recoding(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_rlnc_seeded_roundtrip(c: &mut Criterion) {
+    let mut group = c.benchmark_group("RLNC Seeded Roundtrip");
+
+    let total_bytes = 32_768u64; // 32KB
+    let symbols = 32;
+    const SSIZE: usize = 1024;
+    let data = vec![0u8; total_bytes as usize];
+
+    group.throughput(Throughput::Bytes(total_bytes));
+
+    group.bench_function("seeded_encode_decode", |b| {
+        b.iter(|| {
+            // Create seeded encoder
+            let mut encoder = RlnEncoder::<GF256, SSIZE>::with_seed([42u8; 32]);
+            let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
+
+            encoder.configure(symbols).unwrap();
+            decoder.configure(symbols).unwrap();
+
+            encoder.set_data(&data).unwrap();
+
+            // Generate and decode packets using seeded RNG
+            for _ in 0..symbols {
+                let (coeffs, symbol) = encoder.encode_packet().unwrap();
+                decoder.add_symbol(&coeffs, &symbol).unwrap();
+            }
+
+            let decoded = decoder.decode().unwrap();
+            assert_eq!(decoded, data);
+            black_box(decoded);
+        })
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_rlnc_encoding,
@@ -361,6 +408,7 @@ criterion_group!(
     bench_sparse_rlnc_encoding,
     bench_sparse_rlnc_decoding,
     bench_streaming_rlnc,
-    bench_rlnc_recoding
+    bench_rlnc_recoding,
+    bench_rlnc_seeded_roundtrip
 );
 criterion_main!(benches);
