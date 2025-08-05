@@ -157,6 +157,11 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
     pub fn set_config(&mut self, config: SparseConfig) {
         self.config = config;
     }
+
+    /// Set the seed for deterministic coefficient generation
+    pub fn set_seed(&mut self, seed: [u8; 32]) {
+        self.rng = CodingRng::from_seed(seed);
+    }
 }
 
 #[cfg(test)]

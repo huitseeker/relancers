@@ -18,6 +18,10 @@ pub struct RlnEncoder<F: BiniusField, const N: usize> {
     sparse_generator: Option<SparseCoeffGenerator<F>>,
     /// Current sparsity configuration
     sparsity_config: Option<SparseConfig>,
+    /// Current seed for deterministic coefficient generation
+    current_seed: [u8; 32],
+    /// Counter for packet generation
+    packet_counter: u64,
     _marker: PhantomData<F>,
 }
 
@@ -30,6 +34,8 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             rng: CodingRng::new(),
             sparse_generator: None,
             sparsity_config: None,
+            current_seed: [0u8; 32],
+            packet_counter: 0,
             _marker: PhantomData,
         }
     }
@@ -42,6 +48,8 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             rng: CodingRng::from_seed(seed),
             sparse_generator: None,
             sparsity_config: None,
+            current_seed: seed,
+            packet_counter: 0,
             _marker: PhantomData,
         }
     }
@@ -74,10 +82,19 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     where
         F: WithUnderlier<Underlier = u8>,
     {
-        if let Some(ref mut generator) = self.sparse_generator {
-            generator.generate_coefficients(self.symbols)
+        // Check if we're using a non-zero seed (deterministic mode)
+        if self.current_seed != [0u8; 32] {
+            // Deterministic mode - use seed-based generation
+            let coeffs = self.generate_coefficients_deterministic(self.packet_counter);
+            self.packet_counter += 1;
+            coeffs
         } else {
-            self.rng.generate_coefficients(self.symbols)
+            // Random mode - use existing logic
+            if let Some(ref mut generator) = self.sparse_generator {
+                generator.generate_coefficients(self.symbols)
+            } else {
+                self.rng.generate_coefficients(self.symbols)
+            }
         }
     }
 
@@ -127,6 +144,41 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         }
     }
 
+    /// Set the seed for deterministic coefficient generation
+    pub fn set_seed(&mut self, seed: [u8; 32]) {
+        self.current_seed = seed;
+        self.rng = CodingRng::from_seed(seed);
+        self.packet_counter = 0;
+
+        // Also update sparse generator if it exists
+        if let Some(ref mut generator) = self.sparse_generator {
+            generator.set_seed(seed);
+        }
+    }
+
+    /// Get the current seed
+    pub fn current_seed(&self) -> [u8; 32] {
+        self.current_seed
+    }
+
+    /// Generate coefficients deterministically from seed and packet index
+    fn generate_coefficients_deterministic(&mut self, packet_index: u64) -> Vec<F>
+    where
+        F: WithUnderlier<Underlier = u8>,
+    {
+        // Create deterministic seed based on master seed and packet index
+        let mut combined_seed = [0u8; 32];
+        combined_seed[..32].copy_from_slice(&self.current_seed);
+        // XOR the packet index into the last 8 bytes for uniqueness
+        let index_bytes = packet_index.to_le_bytes();
+        for i in 0..8 {
+            combined_seed[24 + i] ^= index_bytes[i];
+        }
+
+        let mut rng = CodingRng::from_seed(combined_seed);
+        rng.generate_coefficients(self.symbols)
+    }
+
     /// Configure the encoder with number of symbols and optional sparsity
     pub fn configure_with_sparsity(
         &mut self,
@@ -169,6 +221,7 @@ where
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.packet_counter = 0;
 
         Ok(())
     }
@@ -401,6 +454,155 @@ mod tests {
 
         assert_eq!(coeffs1, coeffs2);
         assert_eq!(symbol1, symbol2);
+    }
+
+    #[test]
+    fn test_encoder_set_seed() {
+        let mut encoder = RlnEncoder::<GF256, 16>::new();
+        let seed = [123; 32];
+        encoder.set_seed(seed);
+        assert_eq!(encoder.current_seed(), seed);
+    }
+
+    #[test]
+    fn test_encoder_sequential_packets_deterministic() {
+        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+
+        encoder.configure(2).unwrap();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        encoder.set_data(&data).unwrap();
+
+        // Generate sequential packets - each should have different coefficients
+        let mut seen_coeffs = std::collections::HashSet::new();
+
+        for _ in 0..10 {
+            let (coeffs, _) = encoder.encode_packet().unwrap();
+            seen_coeffs.insert(coeffs);
+        }
+
+        // All packets should have unique coefficients
+        assert_eq!(seen_coeffs.len(), 10);
+    }
+
+    #[test]
+    fn test_encoder_different_seeds_produce_different_outputs() {
+        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed([1; 32]);
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([2; 32]);
+
+        encoder1.configure(2).unwrap();
+        encoder2.configure(2).unwrap();
+
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        let (coeffs1, _) = encoder1.encode_packet().unwrap();
+        let (coeffs2, _) = encoder2.encode_packet().unwrap();
+
+        // Should generate different coefficients with different seeds
+        assert_ne!(coeffs1, coeffs2);
+    }
+
+    #[test]
+    fn test_encoder_round_trip_with_seed() {
+        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
+
+        let symbols = 3;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
+
+        encoder.set_data(&data).unwrap();
+
+        // Generate and send enough packets for decoding
+        for _ in 0..symbols {
+            let (coeffs, symbol) = encoder.encode_packet().unwrap();
+            decoder.add_symbol(&coeffs, &symbol).unwrap();
+        }
+
+        assert!(decoder.can_decode());
+        let decoded = decoder.decode().unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_encoder_set_seed_after_configuration() {
+        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        encoder.configure(2).unwrap();
+
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        encoder.set_data(&data).unwrap();
+
+        // Record some packets before setting seed
+        let (_coeffs_before1, _) = encoder.encode_packet().unwrap();
+        let (_coeffs_before2, _) = encoder.encode_packet().unwrap();
+
+        // Set seed and generate new packets
+        encoder.set_seed([42; 32]);
+        let (coeffs_after1, _) = encoder.encode_packet().unwrap();
+        let (coeffs_after2, _) = encoder.encode_packet().unwrap();
+
+        // After setting seed, should be deterministic
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        encoder2.configure(2).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        let (coeffs_check1, _) = encoder2.encode_packet().unwrap();
+        let (coeffs_check2, _) = encoder2.encode_packet().unwrap();
+
+        assert_eq!(coeffs_after1, coeffs_check1);
+        assert_eq!(coeffs_after2, coeffs_check2);
+    }
+
+    #[test]
+    fn test_encoder_seed_with_sparsity() {
+        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        encoder.configure(5).unwrap();
+        let data = vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ];
+        encoder.set_data(&data).unwrap();
+
+        // Test with sparsity
+        encoder.set_sparsity(0.4);
+
+        // Generate and send enough packets for decoding
+        let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
+        decoder.configure(5).unwrap();
+
+        for _ in 0..5 {
+            let (coeffs, symbol) = encoder.encode_packet().unwrap();
+            decoder.add_symbol(&coeffs, &symbol).unwrap();
+        }
+
+        assert!(decoder.can_decode());
+        let decoded = decoder.decode().unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_encoder_reset_seed() {
+        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        encoder.configure(2).unwrap();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        encoder.set_data(&data).unwrap();
+
+        let (coeffs1, symbol1) = encoder.encode_packet().unwrap();
+        let (coeffs2, symbol2) = encoder.encode_packet().unwrap();
+
+        // Reset seed to same value
+        encoder.set_seed([42; 32]);
+
+        // Should restart from beginning
+        let (coeffs_reset1, symbol_reset1) = encoder.encode_packet().unwrap();
+        let (coeffs_reset2, symbol_reset2) = encoder.encode_packet().unwrap();
+
+        assert_eq!(coeffs1, coeffs_reset1);
+        assert_eq!(symbol1, symbol_reset1);
+        assert_eq!(coeffs2, coeffs_reset2);
+        assert_eq!(symbol2, symbol_reset2);
     }
 
     #[test]
