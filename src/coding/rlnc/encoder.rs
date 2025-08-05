@@ -85,12 +85,10 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
                     } else {
                         ConfiguredCoeffGenerator::from(CodingRng::from_seed(self.current_seed))
                     }
+                } else if let Some(config) = self.sparsity_config {
+                    ConfiguredCoeffGenerator::from(SparseCoeffGenerator::new(config))
                 } else {
-                    if let Some(config) = self.sparsity_config {
-                        ConfiguredCoeffGenerator::from(SparseCoeffGenerator::new(config))
-                    } else {
-                        ConfiguredCoeffGenerator::from(CodingRng::new())
-                    }
+                    ConfiguredCoeffGenerator::from(CodingRng::new())
                 }
             };
             self.coeff_generator.set(val).unwrap();
