@@ -2,7 +2,6 @@ use binius_field::AESTowerField8b as GF256;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use rand::Rng;
 use relancers::coding::reed_solomon::{RsDecoder, RsEncoder};
-use relancers::coding::rlnc::SparseRlnEncoder;
 use relancers::coding::rlnc::{RlnDecoder, RlnEncoder};
 use relancers::coding::sparse::SparseConfig;
 use relancers::coding::traits::{Decoder, Encoder, StreamingDecoder};
@@ -166,8 +165,9 @@ fn bench_sparse_rlnc_encoding(c: &mut Criterion) {
     // Test different sparsity levels
     for sparsity in &[0.1, 0.3, 0.5, 0.8, 1.0] {
         let config = SparseConfig::new(*sparsity);
-        let mut encoder = SparseRlnEncoder::<GF256, SSIZE>::with_sparse_config(config);
+        let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
         encoder.configure(symbols).unwrap();
+        encoder.set_sparsity_config(config);
         encoder.set_data(&data).unwrap();
 
         group.throughput(Throughput::Bytes(total_bytes));
@@ -192,10 +192,11 @@ fn bench_sparse_rlnc_decoding(c: &mut Criterion) {
     // Test different sparsity levels
     for sparsity in &[0.1, 0.3, 0.5, 0.8, 1.0] {
         let config = SparseConfig::new(*sparsity);
-        let mut encoder = SparseRlnEncoder::<GF256, SSIZE>::with_sparse_config(config);
+        let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
         let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
         encoder.configure(symbols).unwrap();
+        encoder.set_sparsity_config(config);
         encoder.set_data(&data).unwrap();
         decoder.configure(symbols).unwrap();
 

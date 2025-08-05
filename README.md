@@ -25,8 +25,8 @@ use relancers::coding::{RlnEncoder, RlnDecoder, Encoder, Decoder};
 use binius_field::BinaryField8b as GF256;
 
 // 3× faster than dense RLNC with sparse coefficients
-let mut encoder = RlnEncoder::<GF256>::new();
-encoder.configure(16, 1024).unwrap();
+let mut encoder = RlnEncoder::<GF256, 1024>::new();
+encoder.configure(16).unwrap();
 encoder.set_data(&data).unwrap();
 let (coeffs, symbol) = encoder.encode_packet().unwrap();
 ```
@@ -34,8 +34,10 @@ let (coeffs, symbol) = encoder.encode_packet().unwrap();
 ## Features
 
 - **RLNC** (Random Linear Network Coding) - dense and sparse coefficients
+- **Sparse RLNC** - configurable sparsity levels (0.1-1.0)
 - **Reed-Solomon** systematic codes *(testing only, not optimized)*
 - **Streaming decoder** with partial recovery
+- **Seeded encoders** for deterministic testing
 - **AVX-512 acceleration** via Binius
 - **GF(256)** finite field arithmetic
 
@@ -43,16 +45,19 @@ let (coeffs, symbol) = encoder.encode_packet().unwrap();
 
 ### Basic RLNC
 ```rust
-let mut encoder = RlnEncoder::<GF256>::new();
-encoder.configure(16, 1024)?;
+let mut encoder = RlnEncoder::<GF256, 1024>::new();
+encoder.configure(16)?;
 encoder.set_data(&data)?;
 let packet = encoder.encode_packet()?;
 ```
 
 ### Sparse RLNC
 ```rust
-use relancers::coding::{SparseRlnEncoder, SparseConfig};
-let encoder = SparseRlnEncoder::with_sparse_config(SparseConfig::new(0.3));
+use relancers::coding::{RlnEncoder, SparseConfig};
+let mut encoder = RlnEncoder::<GF256>::new();
+encoder.configure_with_sparsity(16, Some(0.3))?; // 30% sparsity
+// or
+encoder.set_sparsity(0.3); // Configure sparsity after configuration
 ```
 
 ### Reed-Solomon (Testing Only)
@@ -60,8 +65,8 @@ let encoder = SparseRlnEncoder::with_sparse_config(SparseConfig::new(0.3));
 
 ```rust
 use relancers::coding::{RsEncoder, RsDecoder};
-let mut encoder = RsEncoder::<GF256>::new();
-encoder.configure(16, 1024)?;
+let mut encoder = RsEncoder::<GF256, 1024>::new();
+encoder.configure(16)?;
 encoder.set_data(&data)?;
 ```
 

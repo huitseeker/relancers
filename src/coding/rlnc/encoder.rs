@@ -1,3 +1,4 @@
+use crate::coding::sparse::{SparseCoeffGenerator, SparseConfig};
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
@@ -5,7 +6,7 @@ use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 use std::marker::PhantomData;
 
-/// Random Linear Network Coding Encoder
+/// Random Linear Network Coding Encoder with optional sparse coefficient generation
 pub struct RlnEncoder<F: BiniusField, const N: usize> {
     /// Number of source symbols
     symbols: usize,
@@ -13,6 +14,10 @@ pub struct RlnEncoder<F: BiniusField, const N: usize> {
     data: Vec<Symbol<N>>,
     /// Random number generator
     rng: CodingRng,
+    /// Sparse coefficient generator (optional)
+    sparse_generator: Option<SparseCoeffGenerator<F>>,
+    /// Current sparsity configuration
+    sparsity_config: Option<SparseConfig>,
     _marker: PhantomData<F>,
 }
 
@@ -23,6 +28,8 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             symbols: 0,
             data: Vec::new(),
             rng: CodingRng::new(),
+            sparse_generator: None,
+            sparsity_config: None,
             _marker: PhantomData,
         }
     }
@@ -33,6 +40,8 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             symbols: 0,
             data: Vec::new(),
             rng: CodingRng::from_seed(seed),
+            sparse_generator: None,
+            sparsity_config: None,
             _marker: PhantomData,
         }
     }
@@ -60,12 +69,85 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         Ok(())
     }
 
-    /// Generate random coefficients for encoding
+    /// Generate coefficients with optional sparse generation
     pub fn generate_coefficients(&mut self) -> Vec<F>
     where
-        F: From<u8>,
+        F: WithUnderlier<Underlier = u8>,
     {
-        self.rng.generate_coefficients(self.symbols)
+        if let Some(ref mut generator) = self.sparse_generator {
+            generator.generate_coefficients(self.symbols)
+        } else {
+            self.rng.generate_coefficients(self.symbols)
+        }
+    }
+
+    /// Get sparsity configuration
+    pub fn sparsity_config(&self) -> Option<&SparseConfig> {
+        self.sparsity_config.as_ref()
+    }
+
+    /// Get current sparsity level if sparse mode is enabled
+    pub fn sparsity(&self) -> Option<f64> {
+        self.sparsity_config.as_ref().map(|config| config.sparsity)
+    }
+
+    /// Set sparsity level and enable sparse mode
+    pub fn set_sparsity(&mut self, sparsity: f64) {
+        let config = SparseConfig::new(sparsity);
+        self.set_sparsity_config(config);
+    }
+
+    /// Set sparsity configuration with full config options
+    pub fn set_sparsity_config(&mut self, config: SparseConfig) {
+        self.sparse_generator = Some(SparseCoeffGenerator::new(config));
+        self.sparsity_config = Some(config);
+    }
+
+    /// Disable sparse mode and use dense coefficients
+    pub fn disable_sparsity(&mut self) {
+        self.sparse_generator = None;
+        self.sparsity_config = None;
+    }
+
+    /// Get sparsity statistics for the given coefficients
+    pub fn sparsity_stats(&self, coeffs: &[F]) -> SparsityStats
+    where
+        F: WithUnderlier<Underlier = u8>,
+    {
+        let total = coeffs.len();
+        let non_zeros = coeffs.iter().filter(|c| !c.is_zero()).count();
+        let zeros = total - non_zeros;
+        let sparsity_ratio = non_zeros as f64 / total as f64;
+
+        SparsityStats {
+            total,
+            non_zeros,
+            zeros,
+            sparsity_ratio,
+        }
+    }
+
+    /// Configure the encoder with number of symbols and optional sparsity
+    pub fn configure_with_sparsity(
+        &mut self,
+        symbols: usize,
+        sparsity: Option<f64>,
+    ) -> Result<(), CodingError> {
+        if symbols == 0 {
+            return Err(CodingError::InvalidParameters);
+        }
+
+        self.symbols = symbols;
+        self.data.clear();
+        self.data.reserve(symbols);
+
+        // Set sparsity if provided
+        match sparsity {
+            Some(s) => self.set_sparsity(s),
+            None => self.disable_sparsity(),
+        }
+
+        Ok(())
     }
 }
 
@@ -150,7 +232,7 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let coefficients = self.rng.generate_coefficients(self.symbols);
+        let coefficients = self.generate_coefficients();
         let symbol = self.encode_symbol(&coefficients)?;
 
         Ok((coefficients, symbol))
@@ -161,9 +243,19 @@ where
     }
 }
 
+/// Sparsity statistics for generated coefficients
+#[derive(Debug, Clone, PartialEq)]
+pub struct SparsityStats {
+    pub total: usize,
+    pub non_zeros: usize,
+    pub zeros: usize,
+    pub sparsity_ratio: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::coding::traits::Decoder;
     use binius_field::AESTowerField8b as GF256;
 
     #[test]
@@ -339,6 +431,147 @@ mod tests {
     }
 
     #[test]
+    fn test_encoder_sparsity_functionality() {
+        let mut encoder = RlnEncoder::<GF256, 4>::new();
+
+        encoder.configure(5).unwrap();
+        let data = vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ];
+        encoder.set_data(&data).unwrap();
+
+        // Test default (no sparsity)
+        assert_eq!(encoder.sparsity(), None);
+        assert_eq!(encoder.sparsity_config(), None);
+
+        // Test setting sparsity
+        encoder.set_sparsity(0.5);
+        assert_eq!(encoder.sparsity(), Some(0.5));
+        assert!(encoder.sparsity_config().is_some());
+
+        // Test sparsity statistics
+        let coeffs = encoder.generate_coefficients();
+        let stats = encoder.sparsity_stats(&coeffs);
+        assert_eq!(stats.total, 5);
+        assert!(stats.sparsity_ratio > 0.0);
+
+        // Test disabling sparsity
+        encoder.disable_sparsity();
+        assert_eq!(encoder.sparsity(), None);
+
+        // Test full density generation
+        let coeffs_dense = encoder.generate_coefficients();
+        let stats_dense = encoder.sparsity_stats(&coeffs_dense);
+        assert!(stats_dense.sparsity_ratio >= 0.8); // Should be close to 1.0
+    }
+
+    #[test]
+    fn test_configure_with_sparsity() {
+        let mut encoder = RlnEncoder::<GF256, 4>::new();
+
+        // Test configure with no sparsity (dense)
+        assert!(encoder.configure_with_sparsity(3, None).is_ok());
+        assert_eq!(encoder.sparsity(), None);
+
+        // Test configure with sparsity
+        assert!(encoder.configure_with_sparsity(4, Some(0.5)).is_ok());
+        assert_eq!(encoder.sparsity(), Some(0.5));
+
+        // Test configure with zero sparsity
+        assert!(encoder.configure_with_sparsity(2, Some(0.0)).is_ok());
+        assert_eq!(encoder.sparsity(), Some(0.0));
+
+        // Test invalid configuration
+        assert!(encoder.configure_with_sparsity(0, Some(0.5)).is_err());
+    }
+
+    #[test]
+    fn test_encoder_zero_sparsity() {
+        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        encoder.configure(4).unwrap();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        encoder.set_data(&data).unwrap();
+
+        // Test zero sparsity - we expect at least some zeros due to the sparse generator
+        encoder.set_sparsity(0.0);
+        let coeffs = encoder.generate_coefficients();
+        let stats = encoder.sparsity_stats(&coeffs);
+
+        // With 0.0 sparsity, we expect very few non-zeros (possibly 0)
+        assert!(
+            stats.non_zeros <= 4,
+            "Expected few non-zeros, got {}",
+            stats.non_zeros
+        );
+        assert!(
+            stats.sparsity_ratio <= 0.25,
+            "Expected low sparsity ratio, got {}",
+            stats.sparsity_ratio
+        );
+    }
+
+    #[test]
+    fn test_encoder_full_sparsity() {
+        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        encoder.configure(4).unwrap();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        encoder.set_data(&data).unwrap();
+
+        // Test full sparsity (all non-zeros)
+        encoder.set_sparsity(1.0);
+        let coeffs = encoder.generate_coefficients();
+        let stats = encoder.sparsity_stats(&coeffs);
+        assert_eq!(stats.non_zeros, 4);
+        assert_eq!(stats.sparsity_ratio, 1.0);
+    }
+
+    #[test]
+    fn test_encoder_sparsity_config_options() {
+        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        encoder.configure(3).unwrap();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        encoder.set_data(&data).unwrap();
+
+        // Test custom sparse config
+        let config = SparseConfig::new(0.7).with_min_non_zeros(1);
+        encoder.set_sparsity_config(config);
+
+        let coeffs = encoder.generate_coefficients();
+        let stats = encoder.sparsity_stats(&coeffs);
+        assert_eq!(stats.total, 3);
+    }
+
+    #[test]
+    fn test_encoder_roundtrip_with_sparsity() {
+        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
+
+        let symbols = 3;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+        encoder.configure(symbols).unwrap();
+        decoder.configure(symbols).unwrap();
+
+        encoder.set_data(&data).unwrap();
+
+        // Test with sparsity
+        encoder.set_sparsity(0.4);
+
+        // Generate and send enough packets for decoding
+        let mut packets_sent = 0;
+        while packets_sent < symbols {
+            let (coeffs, symbol) = encoder.encode_packet().unwrap();
+            if decoder.add_symbol(&coeffs, &symbol).is_ok() {
+                packets_sent += 1;
+            }
+        }
+
+        assert!(decoder.can_decode());
+        let decoded = decoder.decode().unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
     fn test_parallel_encoding_correctness() {
         // Test that parallel encoding works correctly
         let mut encoder = RlnEncoder::<GF256, 64>::new();
@@ -365,35 +598,5 @@ mod tests {
         for &byte in &result.into_inner()[1..] {
             assert_eq!(byte, 0);
         }
-    }
-
-    // TODO(huitseeker): delete or make it make sense
-    #[test]
-    fn test_parallel_vs_sequential_consistency() {
-        // Test that encoding produces consistent results regardless of parallel/sequential path
-        let symbols = 31; // Just below threshold
-        const SSIZE: usize = 32;
-        let data_size = symbols * SSIZE;
-        let data: Vec<u8> = (0..data_size).map(|i| (i % 256) as u8).collect();
-        let coeffs: Vec<GF256> = (0..symbols).map(|i| GF256::from(i as u8)).collect();
-
-        // Test sequential path (31 symbols)
-        let mut encoder_seq = RlnEncoder::<GF256, SSIZE>::with_seed([123; 32]);
-        encoder_seq.configure(symbols).unwrap();
-        encoder_seq.set_data(&data).unwrap();
-        let _result_seq = encoder_seq.encode_symbol(&coeffs).unwrap();
-
-        // Test parallel path (32 symbols)
-        let symbols_parallel = 32;
-        let data_size_parallel = symbols_parallel * SSIZE;
-        let data_parallel: Vec<u8> = (0..data_size_parallel).map(|i| (i % 256) as u8).collect();
-        let coeffs_parallel: Vec<GF256> = (0..symbols_parallel)
-            .map(|i| GF256::from(i as u8))
-            .collect();
-
-        let mut encoder_par = RlnEncoder::<GF256, SSIZE>::with_seed([123; 32]);
-        encoder_par.configure(symbols_parallel).unwrap();
-        encoder_par.set_data(&data_parallel).unwrap();
-        let _result_par = encoder_par.encode_symbol(&coeffs_parallel).unwrap();
     }
 }
