@@ -1,5 +1,7 @@
 //! Network coding implementations
 
+/// Coefficient generation traits and implementations
+pub mod coeff_generator;
 /// Reed-Solomon error correcting codes
 pub mod reed_solomon;
 /// Random Linear Network Coding implementation

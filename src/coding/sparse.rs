@@ -52,12 +52,6 @@ impl SparseConfig {
         self
     }
 
-    /// Set deterministic generation
-    pub fn with_deterministic(mut self, deterministic: bool) -> Self {
-        self.deterministic = deterministic;
-        self
-    }
-
     /// Calculate actual number of non-zero coefficients for given symbols
     pub fn calculate_non_zeros(&self, symbols: usize) -> usize {
         let target = (symbols as f64 * self.sparsity).round() as usize;
@@ -72,6 +66,7 @@ impl SparseConfig {
 }
 
 /// Sparse coefficient generator for RLNC
+#[derive(Debug, Clone)]
 pub struct SparseCoeffGenerator<F: BiniusField> {
     config: SparseConfig,
     rng: CodingRng,

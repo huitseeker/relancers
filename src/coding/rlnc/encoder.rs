@@ -1,9 +1,11 @@
+use crate::coding::coeff_generator::{CoeffGenerator, ConfiguredCoeffGenerator};
 use crate::coding::sparse::{SparseCoeffGenerator, SparseConfig};
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
 use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
+use once_cell::sync::OnceCell;
 use std::marker::PhantomData;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
@@ -12,16 +14,14 @@ pub struct RlnEncoder<F: BiniusField, const N: usize> {
     symbols: usize,
     /// Original data split into symbols
     data: Vec<Symbol<N>>,
-    /// Random number generator
-    rng: CodingRng,
-    /// Sparse coefficient generator (optional)
-    sparse_generator: Option<SparseCoeffGenerator<F>>,
-    /// Current sparsity configuration
-    sparsity_config: Option<SparseConfig>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Counter for packet generation
     packet_counter: u64,
+    /// Current sparsity configuration
+    sparsity_config: Option<SparseConfig>,
+    /// Configured coefficient generator
+    coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
     _marker: PhantomData<F>,
 }
 
@@ -31,11 +31,10 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         Self {
             symbols: 0,
             data: Vec::new(),
-            rng: CodingRng::new(),
-            sparse_generator: None,
-            sparsity_config: None,
             current_seed: [0u8; 32],
             packet_counter: 0,
+            sparsity_config: None,
+            coeff_generator: OnceCell::new(),
             _marker: PhantomData,
         }
     }
@@ -45,11 +44,10 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         Self {
             symbols: 0,
             data: Vec::new(),
-            rng: CodingRng::from_seed(seed),
-            sparse_generator: None,
-            sparsity_config: None,
             current_seed: seed,
             packet_counter: 0,
+            sparsity_config: None,
+            coeff_generator: OnceCell::new(),
             _marker: PhantomData,
         }
     }
@@ -77,25 +75,41 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         Ok(())
     }
 
+    /// Initialize or get the coefficient generator
+    fn get_coeff_generator(&mut self) -> &mut ConfiguredCoeffGenerator<F> {
+        // TODO: replace once https://github.com/rust-lang/rust/issues/121641 stabilizes
+        if self.coeff_generator.get().is_none() {
+            let val = {
+                if self.current_seed != [0u8; 32] {
+                    if let Some(config) = self.sparsity_config {
+                        ConfiguredCoeffGenerator::from(SparseCoeffGenerator::with_seed(
+                            config,
+                            self.current_seed,
+                        ))
+                    } else {
+                        ConfiguredCoeffGenerator::from(CodingRng::from_seed(self.current_seed))
+                    }
+                } else {
+                    if let Some(config) = self.sparsity_config {
+                        ConfiguredCoeffGenerator::from(SparseCoeffGenerator::new(config))
+                    } else {
+                        ConfiguredCoeffGenerator::from(CodingRng::new())
+                    }
+                }
+            };
+            self.coeff_generator.set(val).unwrap();
+        }
+        self.coeff_generator.get_mut().unwrap()
+    }
+
     /// Generate coefficients with optional sparse generation
     pub fn generate_coefficients(&mut self) -> Vec<F>
     where
         F: WithUnderlier<Underlier = u8>,
     {
-        // Check if we're using a non-zero seed (deterministic mode)
-        if self.current_seed != [0u8; 32] {
-            // Deterministic mode - use seed-based generation
-            let coeffs = self.generate_coefficients_deterministic(self.packet_counter);
-            self.packet_counter += 1;
-            coeffs
-        } else {
-            // Random mode - use existing logic
-            if let Some(ref mut generator) = self.sparse_generator {
-                generator.generate_coefficients(self.symbols)
-            } else {
-                self.rng.generate_coefficients(self.symbols)
-            }
-        }
+        let symbols = self.symbols;
+        let generator = self.get_coeff_generator();
+        generator.generate_coefficients(symbols)
     }
 
     /// Get sparsity configuration
@@ -116,14 +130,16 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
 
     /// Set sparsity configuration with full config options
     pub fn set_sparsity_config(&mut self, config: SparseConfig) {
-        self.sparse_generator = Some(SparseCoeffGenerator::new(config));
         self.sparsity_config = Some(config);
+        // Reset the coefficient generator to use new config
+        self.coeff_generator = OnceCell::new();
     }
 
     /// Disable sparse mode and use dense coefficients
     pub fn disable_sparsity(&mut self) {
-        self.sparse_generator = None;
         self.sparsity_config = None;
+        // Reset the coefficient generator to use dense mode
+        self.coeff_generator = OnceCell::new();
     }
 
     /// Get sparsity statistics for the given coefficients
@@ -147,36 +163,15 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     /// Set the seed for deterministic coefficient generation
     pub fn set_seed(&mut self, seed: [u8; 32]) {
         self.current_seed = seed;
-        self.rng = CodingRng::from_seed(seed);
         self.packet_counter = 0;
 
-        // Also update sparse generator if it exists
-        if let Some(ref mut generator) = self.sparse_generator {
-            generator.set_seed(seed);
-        }
+        // Update the coefficient generator with the new seed
+        self.get_coeff_generator().set_seed(seed);
     }
 
     /// Get the current seed
     pub fn current_seed(&self) -> [u8; 32] {
         self.current_seed
-    }
-
-    /// Generate coefficients deterministically from seed and packet index
-    fn generate_coefficients_deterministic(&mut self, packet_index: u64) -> Vec<F>
-    where
-        F: WithUnderlier<Underlier = u8>,
-    {
-        // Create deterministic seed based on master seed and packet index
-        let mut combined_seed = [0u8; 32];
-        combined_seed[..32].copy_from_slice(&self.current_seed);
-        // XOR the packet index into the last 8 bytes for uniqueness
-        let index_bytes = packet_index.to_le_bytes();
-        for i in 0..8 {
-            combined_seed[24 + i] ^= index_bytes[i];
-        }
-
-        let mut rng = CodingRng::from_seed(combined_seed);
-        rng.generate_coefficients(self.symbols)
     }
 
     /// Configure the encoder with number of symbols and optional sparsity
@@ -192,6 +187,7 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.packet_counter = 0;
 
         // Set sparsity if provided
         match sparsity {
@@ -566,7 +562,7 @@ mod tests {
         encoder.set_data(&data).unwrap();
 
         // Test with sparsity
-        encoder.set_sparsity(0.4);
+        encoder.set_sparsity(0.5);
 
         // Generate and send enough packets for decoding
         let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
