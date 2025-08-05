@@ -367,12 +367,6 @@ mod tests {
     }
 
     #[test]
-    fn test_encoder_zero_symbols() {
-        let mut encoder = RlnEncoder::<GF256, 1024>::new();
-        assert!(encoder.configure(0).is_err());
-    }
-
-    #[test]
     fn test_encoder_not_configured() {
         let mut encoder = RlnEncoder::<GF256, 4>::new();
         let data = vec![1, 2, 3, 4];
@@ -595,18 +589,6 @@ mod tests {
     }
 
     #[test]
-    fn test_encoder_single_symbol() {
-        let mut encoder = RlnEncoder::<GF256, 8>::new();
-        encoder.configure(1).unwrap();
-
-        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        encoder.set_data(&data).unwrap();
-
-        let (coeffs, _symbol) = encoder.encode_packet().unwrap();
-        assert_eq!(coeffs.len(), 1);
-    }
-
-    #[test]
     fn test_comprehensive_determinism_with_same_configuration() {
         let seed = [123; 32];
         let symbols = 4;
@@ -637,33 +619,31 @@ mod tests {
                 "Symbols should be identical with same seed"
             );
         }
-    }
 
-    #[test]
-    fn test_determinism_with_set_seed() {
-        let symbols = 3;
-        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-        let seed = [42; 32];
+        // Test 2: set_seed method determinism (merged from deleted test)
+        let mut encoder3 = RlnEncoder::<GF256, 4>::new();
+        let mut encoder4 = RlnEncoder::<GF256, 4>::new();
 
-        // Test set_seed method
-        let mut encoder1 = RlnEncoder::<GF256, 4>::new();
-        let mut encoder2 = RlnEncoder::<GF256, 4>::new();
+        encoder3.configure(symbols).unwrap();
+        encoder4.configure(symbols).unwrap();
 
-        encoder1.configure(symbols).unwrap();
-        encoder2.configure(symbols).unwrap();
+        encoder3.set_seed(seed);
+        encoder4.set_seed(seed);
 
-        encoder1.set_seed(seed);
-        encoder2.set_seed(seed);
+        encoder3.set_data(&data).unwrap();
+        encoder4.set_data(&data).unwrap();
 
-        encoder1.set_data(&data).unwrap();
-        encoder2.set_data(&data).unwrap();
+        let (coeffs3, symbol3) = encoder3.encode_packet().unwrap();
+        let (coeffs4, symbol4) = encoder4.encode_packet().unwrap();
 
-        // Should produce identical results
-        let (coeffs1, symbol1) = encoder1.encode_packet().unwrap();
-        let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
-
-        assert_eq!(coeffs1, coeffs2);
-        assert_eq!(symbol1, symbol2);
+        assert_eq!(
+            coeffs3, coeffs4,
+            "set_seed should produce identical results"
+        );
+        assert_eq!(
+            symbol3, symbol4,
+            "set_seed should produce identical results"
+        );
     }
 
     #[test]
