@@ -607,6 +607,165 @@ mod tests {
     }
 
     #[test]
+    fn test_comprehensive_determinism_with_same_configuration() {
+        let seed = [123; 32];
+        let symbols = 4;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let sparsity = Some(0.7);
+
+        // Test 1: Same configuration should produce identical encoders
+        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+
+        encoder1.configure_with_sparsity(symbols, sparsity).unwrap();
+        encoder2.configure_with_sparsity(symbols, sparsity).unwrap();
+
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        // Generate multiple packets and verify they're identical
+        for _ in 0..5 {
+            let (coeffs1, symbol1) = encoder1.encode_packet().unwrap();
+            let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
+
+            assert_eq!(
+                coeffs1, coeffs2,
+                "Coefficients should be identical with same seed"
+            );
+            assert_eq!(
+                symbol1, symbol2,
+                "Symbols should be identical with same seed"
+            );
+        }
+    }
+
+    #[test]
+    fn test_determinism_with_set_seed() {
+        let symbols = 3;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        let seed = [42; 32];
+
+        // Test set_seed method
+        let mut encoder1 = RlnEncoder::<GF256, 4>::new();
+        let mut encoder2 = RlnEncoder::<GF256, 4>::new();
+
+        encoder1.configure(symbols).unwrap();
+        encoder2.configure(symbols).unwrap();
+
+        encoder1.set_seed(seed);
+        encoder2.set_seed(seed);
+
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        // Should produce identical results
+        let (coeffs1, symbol1) = encoder1.encode_packet().unwrap();
+        let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
+
+        assert_eq!(coeffs1, coeffs2);
+        assert_eq!(symbol1, symbol2);
+    }
+
+    #[test]
+    fn test_determinism_with_sparse_configuration() {
+        let seed = [99; 32];
+        let symbols = 5;
+        let data = vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ];
+
+        // Test determinism with sparse configuration
+        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+
+        encoder1.configure(symbols).unwrap();
+        encoder2.configure(symbols).unwrap();
+
+        encoder1.set_sparsity(0.4);
+        encoder2.set_sparsity(0.4);
+
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        let (coeffs1, symbol1) = encoder1.encode_packet().unwrap();
+        let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
+
+        assert_eq!(coeffs1, coeffs2, "Sparse encoding should be deterministic");
+        assert_eq!(symbol1, symbol2, "Sparse encoding should be deterministic");
+    }
+
+    #[test]
+    fn test_determinism_with_multiple_sequential_packets() {
+        let seed = [77; 32];
+        let symbols = 3;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+
+        encoder1.configure(symbols).unwrap();
+        encoder2.configure(symbols).unwrap();
+
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        // Generate multiple sequential packets and verify they're identical
+        for i in 0..3 {
+            let (coeffs1, symbol1) = encoder1.encode_packet().unwrap();
+            let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
+
+            assert_eq!(coeffs1, coeffs2, "Packet {} should be identical", i);
+            assert_eq!(symbol1, symbol2, "Packet {} should be identical", i);
+        }
+    }
+
+    #[test]
+    fn test_determinism_round_trip_with_sparse_and_dense_modes() {
+        let seed = [88; 32];
+        let symbols = 4;
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+        // Test sparse mode
+        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+
+        encoder1
+            .configure_with_sparsity(symbols, Some(0.3))
+            .unwrap();
+        encoder2
+            .configure_with_sparsity(symbols, Some(0.3))
+            .unwrap();
+
+        encoder1.set_data(&data).unwrap();
+        encoder2.set_data(&data).unwrap();
+
+        let (sparse_coeffs1, sparse_symbol1) = encoder1.encode_packet().unwrap();
+        let (sparse_coeffs2, sparse_symbol2) = encoder2.encode_packet().unwrap();
+
+        assert_eq!(sparse_coeffs1, sparse_coeffs2);
+        assert_eq!(sparse_symbol1, sparse_symbol2);
+
+        // Test dense mode
+        let mut encoder3 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder4 = RlnEncoder::<GF256, 4>::with_seed(seed);
+
+        encoder3.configure_with_sparsity(symbols, None).unwrap();
+        encoder4.configure_with_sparsity(symbols, None).unwrap();
+
+        encoder3.set_data(&data).unwrap();
+        encoder4.set_data(&data).unwrap();
+
+        let (dense_coeffs1, dense_symbol1) = encoder3.encode_packet().unwrap();
+        let (dense_coeffs2, dense_symbol2) = encoder4.encode_packet().unwrap();
+
+        assert_eq!(dense_coeffs1, dense_coeffs2);
+        assert_eq!(dense_symbol1, dense_symbol2);
+
+        // Sparse and dense should be different (different configurations)
+        assert_ne!(sparse_coeffs1, dense_coeffs1);
+    }
+
+    #[test]
     fn test_encoder_stress_large_data() {
         let mut encoder = RlnEncoder::<GF256, 1024>::new();
         let symbols = 100;
