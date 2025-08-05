@@ -3,6 +3,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 /// Random number generator wrapper for network coding
+#[derive(Debug, Clone)]
 pub struct CodingRng {
     rng: ChaCha8Rng,
 }

@@ -12,8 +12,6 @@ pub struct SparseConfig {
     pub max_non_zeros: Option<usize>,
     /// Minimum number of non-zero coefficients
     pub min_non_zeros: usize,
-    /// Whether to use deterministic generation
-    pub deterministic: bool,
 }
 
 impl Default for SparseConfig {
@@ -22,7 +20,6 @@ impl Default for SparseConfig {
             sparsity: 1.0, // Full density by default
             max_non_zeros: None,
             min_non_zeros: 1,
-            deterministic: false,
         }
     }
 }
@@ -52,12 +49,6 @@ impl SparseConfig {
         self
     }
 
-    /// Set deterministic generation
-    pub fn with_deterministic(mut self, deterministic: bool) -> Self {
-        self.deterministic = deterministic;
-        self
-    }
-
     /// Calculate actual number of non-zero coefficients for given symbols
     pub fn calculate_non_zeros(&self, symbols: usize) -> usize {
         let target = (symbols as f64 * self.sparsity).round() as usize;
@@ -72,6 +63,7 @@ impl SparseConfig {
 }
 
 /// Sparse coefficient generator for RLNC
+#[derive(Debug, Clone)]
 pub struct SparseCoeffGenerator<F: BiniusField> {
     config: SparseConfig,
     rng: CodingRng,
@@ -220,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_sparse_generator_deterministic() {
-        let config = SparseConfig::new(0.5).with_deterministic(true);
+        let config = SparseConfig::new(0.5);
         let mut gen1 = SparseCoeffGenerator::<GF256>::with_seed(config, [42; 32]);
         let mut gen2 = SparseCoeffGenerator::<GF256>::with_seed(config, [42; 32]);
 
