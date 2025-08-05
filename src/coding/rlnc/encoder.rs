@@ -37,6 +37,35 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     }
 
     /// Create a new RLNC encoder with a specific seed for deterministic behavior
+    ///
+    /// # Deterministic Coefficients
+    ///
+    /// For truly deterministic coefficient generation, you **must** provide a non-zero seed.
+    /// The system treats `[0u8; 32]` (all zeros) as "no seed specified", which will result in
+    /// non-deterministic coefficient generation using system entropy.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use relancers::coding::{RlnEncoder, Encoder};
+    /// use binius_field::AESTowerField8b as GF256;
+    ///
+    /// // Deterministic encoding with non-zero seed
+    /// let mut encoder = RlnEncoder::<GF256, 1024>::with_seed([42; 32]);
+    /// encoder.configure(4).unwrap();
+    /// encoder.set_data(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+    ///
+    /// // Will produce identical coefficients across runs
+    /// let (coeffs1, symbol1) = encoder.encode_packet().unwrap();
+    ///
+    /// let mut encoder2 = RlnEncoder::<GF256, 1024>::with_seed([42; 32]);
+    /// encoder2.configure(4).unwrap();
+    /// encoder2.set_data(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+    /// let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
+    ///
+    /// assert_eq!(coeffs1, coeffs2);
+    /// assert_eq!(symbol1, symbol2);
+    /// ```
     pub fn with_seed(seed: [u8; 32]) -> Self {
         Self {
             symbols: 0,

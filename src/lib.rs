@@ -1,9 +1,4 @@
-//! A Rust implementation of network coding algorithms
-//!
-//! This crate provides efficient implementations of network coding schemes including:
-//! - Random Linear Network Coding (RLNC)
-//! - Reed-Solomon codes
-
+#![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 #![allow(clippy::needless_range_loop)]
 
