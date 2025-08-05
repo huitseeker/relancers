@@ -16,8 +16,6 @@ pub struct RlnEncoder<F: BiniusField, const N: usize> {
     data: Vec<Symbol<N>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
-    /// Counter for packet generation
-    packet_counter: u64,
     /// Current sparsity configuration
     sparsity_config: Option<SparseConfig>,
     /// Configured coefficient generator
@@ -32,7 +30,6 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             symbols: 0,
             data: Vec::new(),
             current_seed: [0u8; 32],
-            packet_counter: 0,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
             _marker: PhantomData,
@@ -45,7 +42,6 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             symbols: 0,
             data: Vec::new(),
             current_seed: seed,
-            packet_counter: 0,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
             _marker: PhantomData,
@@ -163,7 +159,6 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     /// Set the seed for deterministic coefficient generation
     pub fn set_seed(&mut self, seed: [u8; 32]) {
         self.current_seed = seed;
-        self.packet_counter = 0;
 
         // Update the coefficient generator with the new seed
         self.get_coeff_generator().set_seed(seed);
@@ -187,7 +182,6 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
-        self.packet_counter = 0;
 
         // Set sparsity if provided
         match sparsity {
@@ -217,7 +211,6 @@ where
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
-        self.packet_counter = 0;
 
         Ok(())
     }
