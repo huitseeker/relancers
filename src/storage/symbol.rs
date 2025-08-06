@@ -14,11 +14,6 @@ impl<const N: usize> Symbol<N> {
         Self { data: [0u8; N] }
     }
 
-    /// Create a new symbol from existing data
-    pub fn from_data(data: [u8; N]) -> Self {
-        Self { data }
-    }
-
     /// Create a zero symbol
     pub fn zero() -> Self {
         Self::new()
@@ -134,7 +129,7 @@ impl<const N: usize> IndexMut<usize> for Symbol<N> {
 
 impl<const N: usize> From<[u8; N]> for Symbol<N> {
     fn from(data: [u8; N]) -> Self {
-        Self::from_data(data)
+        Symbol { data }
     }
 }
 
@@ -170,14 +165,14 @@ mod tests {
     #[test]
     fn test_symbol_from_data() {
         let data = [1, 2, 3, 4, 5];
-        let symbol = Symbol::<5>::from_data(data);
+        let symbol = Symbol::<5>::from(data);
         assert_eq!(symbol.as_slice(), data.as_slice());
     }
 
     #[test]
     fn test_symbol_add_assign() {
-        let mut a = Symbol::<5>::from_data([1, 2, 3, 4, 5]);
-        let b = Symbol::<5>::from_data([5, 4, 3, 2, 1]);
+        let mut a = Symbol::<5>::from([1, 2, 3, 4, 5]);
+        let b = Symbol::<5>::from([5, 4, 3, 2, 1]);
 
         a.add_assign(&b);
         assert_eq!(a.as_slice(), &[4, 6, 0, 6, 4]);
@@ -185,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_symbol_scaling() {
-        let mut symbol = Symbol::<5>::from_data([1, 2, 3, 4, 5]);
+        let mut symbol = Symbol::<5>::from([1, 2, 3, 4, 5]);
         symbol.scale(GF256::from(2));
 
         assert_eq!(symbol.as_slice()[0], 2);
@@ -194,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_symbol_scaling_gf256() {
-        let mut symbol = Symbol::<3>::from_data([0x02, 0x03, 0x04]);
+        let mut symbol = Symbol::<3>::from([0x02, 0x03, 0x04]);
         let scalar = GF256::from(0x03);
         symbol.scale(scalar);
 

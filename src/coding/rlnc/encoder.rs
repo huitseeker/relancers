@@ -97,7 +97,7 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             let end = start + N;
             let mut symbol_data = [0u8; N];
             symbol_data.copy_from_slice(&data[start..end]);
-            self.data.push(Symbol::from_data(symbol_data));
+            self.data.push(Symbol::from(symbol_data));
         }
 
         Ok(())
@@ -309,7 +309,7 @@ where
             offset += 1;
         }
 
-        Ok(Symbol::from_data(result))
+        Ok(Symbol::from(result))
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<N>), CodingError> {
@@ -383,7 +383,7 @@ mod tests {
         let encoded = encoder.encode_symbol(&coeffs).unwrap();
 
         // With proper GF(256) multiplication using AESTowerField8b
-        let expected = Symbol::<4>::from_data([11, 14, 13, 20]); // Actual result with AESTowerField8b
+        let expected = Symbol::<4>::from([11, 14, 13, 20]); // Actual result with AESTowerField8b
         assert_eq!(encoded, expected);
     }
 

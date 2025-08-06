@@ -206,7 +206,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
 
         assert!(decoder.add_symbol(&coeffs, &symbol).is_ok());
         assert_eq!(decoder.coefficients.len(), 1);
@@ -218,7 +218,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
 
         decoder.add_symbol(&coeffs, &symbol).unwrap();
         assert!(!decoder.can_decode());
@@ -282,7 +282,7 @@ mod tests {
     fn test_rs_decoder_not_configured() {
         let mut decoder = RsDecoder::<GF256, 4>::new();
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -292,7 +292,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1)]; // Wrong length
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 

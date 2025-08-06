@@ -62,8 +62,8 @@ impl<F: BiniusField, const N: usize> RsEncoder<F, N> {
         for i in 0..self.symbols {
             let start = i * N;
             let end = start + N;
-            let symbol_data = data[start..end].try_into().unwrap();
-            self.data.push(Symbol::from_data(symbol_data));
+            let symbol_data: [u8; N] = data[start..end].try_into().unwrap();
+            self.data.push(Symbol::from(symbol_data));
         }
 
         Ok(())
@@ -136,7 +136,7 @@ where
         for byte_idx in 0..N {
             result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
         }
-        Ok(Symbol::from_data(result))
+        Ok(Symbol::from(result))
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<N>), CodingError> {

@@ -401,7 +401,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
 
         assert!(decoder.add_symbol(&coeffs, &symbol).is_ok());
         assert_eq!(decoder.symbols_received(), 1);
@@ -413,7 +413,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
 
         decoder.add_symbol(&coeffs, &symbol).unwrap();
         assert!(!decoder.can_decode());
@@ -582,7 +582,7 @@ mod tests {
             .zip(coeffs2.iter())
             .map(|(a, b)| *a + *b)
             .collect();
-        let redundant_symbol = symbol1
+        let redundant_symbol: [u8; _] = symbol1
             .into_inner()
             .iter()
             .zip(symbol2.into_inner().iter())
@@ -593,7 +593,7 @@ mod tests {
 
         // Should detect this as redundant
         assert!(!decoder.check_rank_increase(&redundant_coeffs));
-        let result = decoder.add_symbol(&redundant_coeffs, &Symbol::from_data(redundant_symbol));
+        let result = decoder.add_symbol(&redundant_coeffs, &Symbol::from(redundant_symbol));
         assert!(matches!(result, Err(CodingError::RedundantContribution)));
 
         // Rank should not increase
@@ -615,14 +615,14 @@ mod tests {
         // First coefficient should increase rank
         assert!(decoder.check_rank_increase(&coeffs1));
         decoder
-            .add_symbol(&coeffs1, &Symbol::from_data([1, 2, 3, 4]))
+            .add_symbol(&coeffs1, &Symbol::from([1, 2, 3, 4]))
             .unwrap();
         assert_eq!(decoder.current_rank(), 1);
 
         // Second coefficient should increase rank
         assert!(decoder.check_rank_increase(&coeffs2));
         decoder
-            .add_symbol(&coeffs2, &Symbol::from_data([5, 6, 7, 8]))
+            .add_symbol(&coeffs2, &Symbol::from([5, 6, 7, 8]))
             .unwrap();
         assert_eq!(decoder.current_rank(), 2);
 
@@ -662,7 +662,7 @@ mod tests {
     fn test_decoder_not_configured() {
         let mut decoder = RlnDecoder::<GF256, 4>::new();
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -672,7 +672,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1)]; // Wrong length
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::from([1, 2, 3, 4]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -1055,8 +1055,8 @@ mod tests {
         let _symbol2 = [5, 6, 7, 8]; // Second original symbol
 
         // Create encoded symbols: c1*symbol1 + c2*symbol2
-        let encoded1 = Symbol::from_data([1, 2, 3, 4]); // 1*symbol1 + 0*symbol2
-        let encoded2 = Symbol::from_data([5, 6, 7, 8]); // 0*symbol1 + 1*symbol2
+        let encoded1 = Symbol::from([1, 2, 3, 4]); // 1*symbol1 + 0*symbol2
+        let encoded2 = Symbol::from([5, 6, 7, 8]); // 0*symbol1 + 1*symbol2
 
         // Relay receives symbols
         relay_decoder.add_symbol(&coeffs1, &encoded1).unwrap();
