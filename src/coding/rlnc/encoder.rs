@@ -8,24 +8,24 @@ use binius_field::as_packed_field::{PackScalar, PackedType};
 use binius_field::underlier::WithUnderlier;
 use binius_field::{Field as BiniusField, PackedField};
 use once_cell::sync::OnceCell;
-use std::marker::PhantomData;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
 pub struct RlnEncoder<F: BiniusField, const N: usize> {
     /// Number of source symbols
     symbols: usize,
     /// Original data split into symbols
-    data: Vec<Symbol<N>>,
+    data: Vec<Symbol<F, N>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Current sparsity configuration
     sparsity_config: Option<SparseConfig>,
     /// Configured coefficient generator
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
-    _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
+impl<F: BiniusField, const N: usize> RlnEncoder<F, N>
+where F: WithUnderlier<Underlier = u8>,
+{
     /// Create a new RLNC encoder
     pub fn new() -> Self {
         Self {
@@ -34,7 +34,6 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             current_seed: [0u8; 32],
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
-            _marker: PhantomData,
         }
     }
 
@@ -76,7 +75,6 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
             current_seed: seed,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
-            _marker: PhantomData,
         }
     }
 
@@ -85,7 +83,7 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         self.symbols * N
     }
 
-    /// Split data into symbols
+    /// Split data into symbols with pre-conversion to field elements
     fn split_into_symbols(&mut self, data: &[u8]) -> Result<(), CodingError> {
         if data.len() != self.data_size() {
             return Err(CodingError::InvalidDataSize);
@@ -95,9 +93,11 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
         for i in 0..self.symbols {
             let start = i * N;
             let end = start + N;
-            let mut symbol_data = [0u8; N];
-            symbol_data.copy_from_slice(&data[start..end]);
-            self.data.push(Symbol::from(symbol_data));
+            let mut symbol_data = [F::ZERO; N];
+            for (j, &byte) in data[start..end].iter().enumerate() {
+                symbol_data[j] = F::from_underlier(byte);
+            }
+            self.data.push(Symbol::<_, N>::from_field_elements(&symbol_data));
         }
 
         Ok(())
@@ -223,7 +223,8 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RlnEncoder<F, N> {
+impl<F: BiniusField, const N: usize> Default for RlnEncoder<F, N>
+where F: WithUnderlier<Underlier = u8>, {
     fn default() -> Self {
         Self::new()
     }
@@ -257,7 +258,7 @@ where
     fn encode_symbol(
         &mut self,
         coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<N>, CodingError> {
+    ) -> Result<crate::storage::Symbol<F, N>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -266,7 +267,7 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut result = [0u8; N];
+        let mut result = [F::ZERO; N];
 
         let mut offset = 0;
 
@@ -278,9 +279,11 @@ where
             // Process each symbol and accumulate into packed_result
             for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
                 if !coeff.is_zero() {
-                    // Convert the symbol chunk to a packed field element
-                    let chunk_data = &symbol.as_slice()[offset..offset + PackedType::<OptimalUnderlier, F>::WIDTH];
-                    let packed_symbol = PackedType::<OptimalUnderlier, F>::from_fn(|i| F::from_underlier(chunk_data[i]));
+                    // Get the symbol chunk as field elements and convert to packed
+                    let chunk_data = &symbol.as_slice()
+                        [offset..offset + PackedType::<OptimalUnderlier, F>::WIDTH];
+                    let packed_symbol =
+                        PackedType::<OptimalUnderlier, F>::from_fn(|i| chunk_data[i]);
 
                     // Multiply by coefficient and accumulate
                     let coeff_broadcast = PackedType::<OptimalUnderlier, F>::broadcast(*coeff);
@@ -288,31 +291,31 @@ where
                 }
             }
 
-            // Extract results back to bytes
+            // Extract results back to field elements
             for i in 0..PackedType::<OptimalUnderlier, F>::WIDTH {
-                result[offset + i] = packed_result.get(i).to_underlier();
+                result[offset + i] = packed_result.get(i);
             }
 
             offset += PackedType::<OptimalUnderlier, F>::WIDTH;
         }
 
-        // Handle remaining bytes with scalar operations
+        // Handle remaining elements with scalar operations
         while offset < N {
-            let mut byte_sum = F::ZERO;
+            let mut field_sum = F::ZERO;
             for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
                 if !coeff.is_zero() {
-                    let byte = symbol.as_slice()[offset];
-                    byte_sum += *coeff * F::from_underlier(byte);
+                    let field_elem = symbol.as_slice()[offset];
+                    field_sum += *coeff * field_elem;
                 }
             }
-            result[offset] = byte_sum.to_underlier();
+            result[offset] = field_sum;
             offset += 1;
         }
 
-        Ok(Symbol::from(result))
+        Ok(Symbol::from_field_elements(&result))
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<N>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, N>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
@@ -383,7 +386,7 @@ mod tests {
         let encoded = encoder.encode_symbol(&coeffs).unwrap();
 
         // With proper GF(256) multiplication using AESTowerField8b
-        let expected = Symbol::<4>::from([11, 14, 13, 20]); // Actual result with AESTowerField8b
+        let expected = Symbol::<_, 4>::from([11, 14, 13, 20]); // Actual result with AESTowerField8b
         assert_eq!(encoded, expected);
     }
 
@@ -971,9 +974,9 @@ mod tests {
         let result = encoder.encode_symbol(&coeffs).unwrap();
 
         // First byte should be 1, rest should be 0
-        assert_eq!(result[0], 1);
+        assert_eq!(result[0].to_underlier(), 1);
         for &byte in &result.into_inner()[1..] {
-            assert_eq!(byte, 0);
+            assert_eq!(byte.to_underlier(), 0);
         }
     }
 }

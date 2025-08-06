@@ -12,13 +12,15 @@ pub struct RsEncoder<F: BiniusField, const N: usize> {
     /// Number of source symbols (k)
     symbols: usize,
     /// Original data split into symbols
-    data: Vec<Symbol<N>>,
+    data: Vec<Symbol<F, N>>,
     /// Total number of symbols (n)
     total_symbols: usize,
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField, const N: usize> RsEncoder<F, N> {
+impl<F: BiniusField, const N: usize> RsEncoder<F, N>
+    where F: WithUnderlier<Underlier = u8>,
+{
     /// Create a new Reed-Solomon encoder
     pub fn new() -> Self {
         Self {
@@ -70,7 +72,9 @@ impl<F: BiniusField, const N: usize> RsEncoder<F, N> {
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RsEncoder<F, N> {
+impl<F: BiniusField, const N: usize> Default for RsEncoder<F, N>
+where F: WithUnderlier<Underlier = u8>,
+{
     fn default() -> Self {
         Self::new()
     }
@@ -101,7 +105,7 @@ where
         self.split_into_symbols(data)
     }
 
-    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Symbol<N>, CodingError> {
+    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Symbol<F, N>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -113,7 +117,7 @@ where
         #[inline(always)]
         fn encode_byte<F, const N: usize>(
             coefficients: &[F],
-            symbols: &[Symbol<N>],
+            symbols: &[Symbol<F, N>],
             byte_idx: usize,
         ) -> u8
         where
@@ -122,10 +126,9 @@ where
             let mut byte_sum = F::ZERO;
             for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
                 if !coeff.is_zero() {
-                    let byte = symbol.as_slice()[byte_idx];
-                    if byte != 0 {
-                        let field_byte = F::from_underlier(byte);
-                        byte_sum += *coeff * field_byte;
+                    let elt = symbol.as_slice()[byte_idx];
+                    if elt != F::ZERO {
+                        byte_sum += *coeff * elt;
                     }
                 }
             }
@@ -139,7 +142,7 @@ where
         Ok(Symbol::from(result))
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<N>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<F, N>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
@@ -292,7 +295,7 @@ mod tests {
 
         let (coeffs, symbol) = encoder.encode_packet().unwrap();
         assert_eq!(coeffs.len(), 1);
-        assert_eq!(symbol.into_inner()[..], data[..]);
+        assert_eq!(symbol.into_inner().map(|f| f.to_underlier()), data[..]);
     }
 
     #[test]

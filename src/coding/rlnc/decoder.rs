@@ -3,20 +3,18 @@ use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
 use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
-use std::marker::PhantomData;
-
 /// Random Linear Network Coding Decoder
 pub struct RlnDecoder<F: BiniusField, const N: usize> {
     /// Number of source symbols
     symbols: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol<N>>,
+    received_symbols: Vec<Symbol<F, N>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Optimized Gaussian elimination matrix with RREF maintenance
     matrix: OptimizedMatrix<F>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol<N>>,
+    decoded_symbols: Vec<Symbol<F, N>>,
     /// Track which symbols are decoded
     decoded: Vec<bool>,
     /// Current rank of the decoding matrix
@@ -24,8 +22,7 @@ pub struct RlnDecoder<F: BiniusField, const N: usize> {
     /// Pivot row indices for incremental diagonalization
     pivot_rows: Vec<Option<usize>>,
     /// Partially decoded symbols (for streaming)
-    partial_symbols: Vec<Option<Symbol<N>>>,
-    _marker: PhantomData<F>,
+    partial_symbols: Vec<Option<Symbol<F, N>>>,
 }
 
 impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
@@ -41,7 +38,6 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
             current_rank: 0,
             pivot_rows: Vec::new(),
             partial_symbols: Vec::new(),
-            _marker: PhantomData,
         }
     }
 
@@ -102,7 +98,7 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
                 self.decoded[col] = true;
 
                 // Update partially decoded symbols based on RREF
-                let mut new_symbol = Symbol::<N>::zero();
+                let mut new_symbol = Symbol::<_, N>::zero();
 
                 // Build the solution for this column
                 let row_coefficients = self.matrix.get_row(pivot_row);
@@ -121,7 +117,7 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
     }
 
     /// Perform Gaussian elimination to solve the system using the optimized matrix
-    fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<N>>, CodingError>
+    fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<F, N>>, CodingError>
     where
         F: WithUnderlier<Underlier = u8>,
     {
@@ -252,7 +248,7 @@ where
     fn add_symbol(
         &mut self,
         coefficients: &[F],
-        symbol: &crate::storage::Symbol<N>,
+        symbol: &crate::storage::Symbol<F, N>,
     ) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
@@ -289,7 +285,7 @@ where
             result.extend_from_slice(symbol.as_slice());
         }
 
-        Ok(result)
+        Ok(result.into_iter().map(|f| f.to_underlier()).collect())
     }
 
     fn symbols_needed(&self) -> usize {
@@ -323,7 +319,7 @@ where
     fn decode_symbol(
         &mut self,
         index: usize,
-    ) -> Result<Option<crate::storage::Symbol<N>>, CodingError> {
+    ) -> Result<Option<crate::storage::Symbol<F, N>>, CodingError> {
         if index >= self.symbols {
             return Ok(None);
         }
@@ -344,7 +340,7 @@ where
     fn recode(
         &mut self,
         recode_coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<N>, CodingError> {
+    ) -> Result<crate::storage::Symbol<F, N>, CodingError> {
         if recode_coefficients.len() != self.coefficients.len() {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -353,7 +349,7 @@ where
             return Err(CodingError::InsufficientData);
         }
 
-        let mut recoded_symbol = Symbol::<N>::zero();
+        let mut recoded_symbol = Symbol::<_, N>::zero();
 
         // Linear combination of received symbols using recode coefficients
         for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {
@@ -586,7 +582,7 @@ mod tests {
             .into_inner()
             .iter()
             .zip(symbol2.into_inner().iter())
-            .map(|(a, b)| *a ^ *b)
+            .map(|(a, b)| a.to_underlier() ^ b.to_underlier())
             .collect::<Vec<u8>>()
             .try_into()
             .unwrap();
@@ -1152,7 +1148,7 @@ mod tests {
         // Test with zero coefficients (should produce zero symbol)
         let zero_coeffs = vec![GF256::ZERO, GF256::ZERO];
         let result = decoder.recode(&zero_coeffs).unwrap();
-        assert_eq!(result.into_inner(), [0u8; 4]);
+        assert_eq!(result.into_inner().map(|f| f.to_underlier()), [0u8; 4]);
     }
 
     #[test]

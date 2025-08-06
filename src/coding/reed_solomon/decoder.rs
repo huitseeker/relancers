@@ -12,11 +12,11 @@ pub struct RsDecoder<F: BiniusField, const N: usize> {
     /// Number of source symbols (k)
     symbols: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol<N>>,
+    received_symbols: Vec<Symbol<F, N>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol<N>>,
+    decoded_symbols: Vec<Symbol<F, N>>,
     _marker: PhantomData<F>,
 }
 
@@ -50,8 +50,8 @@ impl<F: BiniusField, const N: usize> RsDecoder<F, N> {
     fn gaussian_elimination(
         &self,
         matrix: &mut [Vec<F>],
-        rhs: &mut [Symbol<N>],
-    ) -> Result<Vec<Symbol<N>>, CodingError>
+        rhs: &mut [Symbol<F, N>],
+    ) -> Result<Vec<Symbol<F, N>>, CodingError>
     where
         F: WithUnderlier<Underlier = u8>,
     {
@@ -144,7 +144,7 @@ where
         Ok(())
     }
 
-    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<N>) -> Result<(), CodingError> {
+    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<F, N>) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -174,7 +174,7 @@ where
             result.extend_from_slice(symbol.as_slice());
         }
 
-        Ok(result)
+        Ok(result.into_iter().map(|f| f.to_underlier()).collect())
     }
 
     fn symbols_needed(&self) -> usize {
@@ -430,7 +430,7 @@ mod tests {
         encoder.set_data(&data).unwrap();
 
         // Collect extra packets
-        let mut packets = Vec::new();
+        let mut packets = Vec::with_capacity(symbols + 1);
         for i in 0..symbols + 2 {
             let point = GF256::from(i as u8);
             let coeffs = decoder.vandermonde_row(point, symbols);
@@ -439,8 +439,8 @@ mod tests {
         }
 
         // Add packets including duplicates
-        for (coeffs, symbol) in packets {
-            decoder.add_symbol(&coeffs, &symbol).unwrap();
+        for (ref coeffs, ref symbol) in packets {
+            decoder.add_symbol(coeffs, symbol).unwrap();
         }
 
         assert!(decoder.can_decode());

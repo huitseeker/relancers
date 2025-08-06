@@ -61,10 +61,10 @@ pub trait Encoder<F: BiniusField, const N: usize> {
     fn encode_symbol(
         &mut self,
         coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<N>, CodingError>;
+    ) -> Result<crate::storage::Symbol<F, N>, CodingError>;
 
     /// Generate a coded packet with coefficients
-    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<N>), CodingError>;
+    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, N>), CodingError>;
 
     /// Get the number of source symbols
     fn symbols(&self) -> usize;
@@ -79,7 +79,7 @@ pub trait Decoder<F: BiniusField, const N: usize> {
     fn add_symbol(
         &mut self,
         coefficients: &[F],
-        symbol: &crate::storage::Symbol<N>,
+        symbol: &crate::storage::Symbol<F, N>,
     ) -> Result<(), CodingError>;
 
     /// Check if decoding is possible
@@ -110,7 +110,7 @@ pub trait StreamingDecoder<F: BiniusField, const N: usize>: Decoder<F, N> {
     fn decode_symbol(
         &mut self,
         index: usize,
-    ) -> Result<Option<crate::storage::Symbol<N>>, CodingError>;
+    ) -> Result<Option<crate::storage::Symbol<F, N>>, CodingError>;
 
     /// Check if new coefficients would increase the matrix rank
     fn check_rank_increase(&self, coefficients: &[F]) -> bool;
@@ -133,7 +133,7 @@ pub trait RecodingDecoder<F: BiniusField, const N: usize>: Decoder<F, N> {
     fn recode(
         &mut self,
         recode_coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<N>, CodingError>;
+    ) -> Result<crate::storage::Symbol<F, N>, CodingError>;
 
     /// Check if the decoder has enough symbols to act as a recoder
     fn can_recode(&self) -> bool;
@@ -145,7 +145,7 @@ pub trait RecodingDecoder<F: BiniusField, const N: usize>: Decoder<F, N> {
 /// Trait for streaming network encoders
 pub trait StreamingEncoder<F: BiniusField, const N: usize>: Encoder<F, N> {
     /// Generate a specific encoded symbol by index (for systematic codes)
-    fn encode_symbol_at(&mut self, index: usize) -> Result<crate::storage::Symbol<N>, CodingError>;
+    fn encode_symbol_at(&mut self, index: usize) -> Result<crate::storage::Symbol<F, N>, CodingError>;
 
     /// Get the current encoding position (for carousel/streaming)
     fn current_position(&self) -> usize;
