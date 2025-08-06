@@ -3,8 +3,10 @@ use crate::coding::sparse::{SparseCoeffGenerator, SparseConfig};
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
+use binius_field::arch::OptimalUnderlier;
+use binius_field::as_packed_field::{PackScalar, PackedType};
 use binius_field::underlier::WithUnderlier;
-use binius_field::Field as BiniusField;
+use binius_field::{Field as BiniusField, PackedField};
 use once_cell::sync::OnceCell;
 use std::marker::PhantomData;
 
@@ -230,6 +232,7 @@ impl<F: BiniusField, const N: usize> Default for RlnEncoder<F, N> {
 impl<F: BiniusField, const N: usize> Encoder<F, N> for RlnEncoder<F, N>
 where
     F: WithUnderlier<Underlier = u8>,
+    OptimalUnderlier: PackScalar<F>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
         if symbols == 0 {
@@ -263,33 +266,49 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        // Use optimized encoding with specialized conversion paths
-        #[inline(always)]
-        fn encode_byte<F, const N: usize>(
-            coefficients: &[F],
-            symbols: &[Symbol<N>],
-            byte_idx: usize,
-        ) -> u8
-        where
-            F: BiniusField + WithUnderlier<Underlier = u8>,
-        {
-            let mut byte_sum = F::ZERO;
-            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
+        let mut result = [0u8; N];
+
+        let mut offset = 0;
+
+        // Process data in chunks that match the actual PackedField width
+        while offset + PackedType::<OptimalUnderlier, F>::WIDTH <= N {
+            // Create packed field elements for the result chunk
+            let mut packed_result = PackedType::<OptimalUnderlier, F>::zero();
+
+            // Process each symbol and accumulate into packed_result
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
                 if !coeff.is_zero() {
-                    let byte = symbol.as_slice()[byte_idx];
-                    if byte != 0 {
-                        let field_byte = F::from_underlier(byte);
-                        byte_sum += *coeff * field_byte;
-                    }
+                    // Convert the symbol chunk to a packed field element
+                    let chunk_data = &symbol.as_slice()[offset..offset + PackedType::<OptimalUnderlier, F>::WIDTH];
+                    let packed_symbol = PackedType::<OptimalUnderlier, F>::from_fn(|i| F::from_underlier(chunk_data[i]));
+
+                    // Multiply by coefficient and accumulate
+                    let coeff_broadcast = PackedType::<OptimalUnderlier, F>::broadcast(*coeff);
+                    packed_result += packed_symbol * coeff_broadcast;
                 }
             }
-            byte_sum.to_underlier()
+
+            // Extract results back to bytes
+            for i in 0..PackedType::<OptimalUnderlier, F>::WIDTH {
+                result[offset + i] = packed_result.get(i).to_underlier();
+            }
+
+            offset += PackedType::<OptimalUnderlier, F>::WIDTH;
         }
 
-        let mut result = [0u8; N];
-        for byte_idx in 0..N {
-            result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
+        // Handle remaining bytes with scalar operations
+        while offset < N {
+            let mut byte_sum = F::ZERO;
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                if !coeff.is_zero() {
+                    let byte = symbol.as_slice()[offset];
+                    byte_sum += *coeff * F::from_underlier(byte);
+                }
+            }
+            result[offset] = byte_sum.to_underlier();
+            offset += 1;
         }
+
         Ok(Symbol::from_data(result))
     }
 
