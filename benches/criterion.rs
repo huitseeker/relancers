@@ -393,7 +393,12 @@ fn bench_rlnc_seeded_roundtrip(c: &mut Criterion) {
             }
 
             let decoded = decoder.decode().unwrap();
-            assert_eq!(decoded, data);
+            assert_eq!(
+                decoded,
+                data.iter()
+                    .map(|byte| GF256::from(*byte))
+                    .collect::<Vec<_>>()
+            );
             black_box(decoded);
         })
     });

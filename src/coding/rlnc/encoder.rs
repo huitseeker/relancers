@@ -557,7 +557,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.into_iter()
+                .map(|byte| GF256::from(byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -612,7 +617,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -948,7 +958,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

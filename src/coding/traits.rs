@@ -86,7 +86,7 @@ pub trait Decoder<F: BiniusField, const N: usize> {
     fn can_decode(&self) -> bool;
 
     /// Attempt to decode the original data
-    fn decode(&mut self) -> Result<Vec<u8>, CodingError>;
+    fn decode(&mut self) -> Result<Vec<F>, CodingError>;
 
     /// Get the number of symbols needed for decoding
     fn symbols_needed(&self) -> usize;

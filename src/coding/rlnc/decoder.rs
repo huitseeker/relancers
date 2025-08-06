@@ -272,7 +272,7 @@ where
         self.coefficients.len() >= self.symbols
     }
 
-    fn decode(&mut self) -> Result<Vec<u8>, CodingError> {
+    fn decode(&mut self) -> Result<Vec<F>, CodingError> {
         if !self.can_decode() {
             return Err(CodingError::InsufficientData);
         }
@@ -285,7 +285,7 @@ where
             result.extend_from_slice(symbol.as_slice());
         }
 
-        Ok(result.into_iter().map(|f| f.to_underlier()).collect())
+        Ok(result)
     }
 
     fn symbols_needed(&self) -> usize {
@@ -437,7 +437,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data); // Should decode correctly with seeded RNG
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        ); // Should decode correctly with seeded RNG
     }
 
     #[test]
@@ -461,7 +466,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data); // Should decode correctly with seeded RNG
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        ); // Should decode correctly with seeded RNG
     }
 
     #[test]
@@ -503,7 +513,12 @@ mod tests {
         }
 
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -542,7 +557,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -688,7 +708,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -709,7 +734,13 @@ mod tests {
         }
 
         let decoded1 = decoder.decode().unwrap();
-        assert_eq!(decoded1, data1);
+        assert_eq!(
+            decoded1,
+            data1
+                .iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
 
         // Reconfigure and reuse
         // only multiples of the original size
@@ -725,7 +756,13 @@ mod tests {
         }
 
         let decoded2 = decoder.decode().unwrap();
-        assert_eq!(decoded2, data2);
+        assert_eq!(
+            decoded2,
+            data2
+                .iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -749,7 +786,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -778,7 +820,12 @@ mod tests {
 
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -811,7 +858,12 @@ mod tests {
         assert!(added >= symbols);
         assert!(decoder.can_decode());
         let decoded = decoder.decode().unwrap();
-        assert_eq!(decoded, data);
+        assert_eq!(
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -868,7 +920,13 @@ mod tests {
             let (coeffs, symbol) = encoder.encode_packet().unwrap();
             decoder.add_symbol(&coeffs, &symbol).unwrap();
         }
-        assert_eq!(decoder.decode().unwrap(), data_zeros);
+        assert_eq!(
+            decoder.decode().unwrap(),
+            data_zeros
+                .iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
 
         // Reset and test with all 0xFF
         encoder.configure(symbols).unwrap();
@@ -880,7 +938,13 @@ mod tests {
             let (coeffs, symbol) = encoder.encode_packet().unwrap();
             decoder.add_symbol(&coeffs, &symbol).unwrap();
         }
-        assert_eq!(decoder.decode().unwrap(), data_ones);
+        assert_eq!(
+            decoder.decode().unwrap(),
+            data_ones
+                .iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
 
         // Test with incrementing pattern
         encoder.configure(symbols).unwrap();
@@ -892,7 +956,13 @@ mod tests {
             let (coeffs, symbol) = encoder.encode_packet().unwrap();
             decoder.add_symbol(&coeffs, &symbol).unwrap();
         }
-        assert_eq!(decoder.decode().unwrap(), data_pattern);
+        assert_eq!(
+            decoder.decode().unwrap(),
+            data_pattern
+                .iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -937,7 +1007,10 @@ mod tests {
 
         let decoded = decoder.decode().unwrap();
         assert_eq!(
-            decoded, data,
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>(),
             "Seeded encoder should produce decodable output"
         );
     }
@@ -989,8 +1062,18 @@ mod tests {
         let decoded1 = decoder1.decode().unwrap();
         let decoded2 = decoder2.decode().unwrap();
 
-        assert_eq!(decoded1, data);
-        assert_eq!(decoded2, data);
+        assert_eq!(
+            decoded1,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            decoded2,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1082,7 +1165,10 @@ mod tests {
         assert!(final_decoder.can_decode());
         let decoded = final_decoder.decode().unwrap();
         assert_eq!(
-            decoded, data,
+            decoded,
+            data.iter()
+                .map(|byte| GF256::from(*byte))
+                .collect::<Vec<_>>(),
             "Recoding should preserve original data through network relay"
         );
     }
