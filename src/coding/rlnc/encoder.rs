@@ -10,11 +10,11 @@ use binius_field::{Field as BiniusField, PackedField};
 use once_cell::sync::OnceCell;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
-pub struct RlnEncoder<F: BiniusField, const N: usize> {
+pub struct RlnEncoder<F: BiniusField, const M: usize> {
     /// Number of source symbols
     symbols: usize,
     /// Original data split into symbols
-    data: Vec<Symbol<F, N>>,
+    data: Vec<Symbol<F, M>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Current sparsity configuration
@@ -23,8 +23,9 @@ pub struct RlnEncoder<F: BiniusField, const N: usize> {
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
 }
 
-impl<F: BiniusField, const N: usize> RlnEncoder<F, N>
-where F: WithUnderlier<Underlier = u8>,
+impl<F: BiniusField, const M: usize> RlnEncoder<F, M>
+where
+    F: WithUnderlier<Underlier = u8>,
 {
     /// Create a new RLNC encoder
     pub fn new() -> Self {
@@ -80,7 +81,7 @@ where F: WithUnderlier<Underlier = u8>,
 
     /// Get the total size of the data in bytes
     pub fn data_size(&self) -> usize {
-        self.symbols * N
+        self.symbols * M
     }
 
     /// Split data into symbols with pre-conversion to field elements
@@ -91,13 +92,14 @@ where F: WithUnderlier<Underlier = u8>,
 
         self.data.clear();
         for i in 0..self.symbols {
-            let start = i * N;
-            let end = start + N;
-            let mut symbol_data = [F::ZERO; N];
+            let start = i * M;
+            let end = start + M;
+            let mut symbol_data = [F::ZERO; M];
             for (j, &byte) in data[start..end].iter().enumerate() {
                 symbol_data[j] = F::from_underlier(byte);
             }
-            self.data.push(Symbol::<_, N>::from_field_elements(&symbol_data));
+            self.data
+                .push(Symbol::<_, M>::from_field_elements(&symbol_data));
         }
 
         Ok(())
@@ -223,14 +225,16 @@ where F: WithUnderlier<Underlier = u8>,
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RlnEncoder<F, N>
-where F: WithUnderlier<Underlier = u8>, {
+impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M>
+where
+    F: WithUnderlier<Underlier = u8>,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField, const N: usize> Encoder<F, N> for RlnEncoder<F, N>
+impl<F: BiniusField, const M: usize> Encoder<F, M> for RlnEncoder<F, M>
 where
     F: WithUnderlier<Underlier = u8>,
     OptimalUnderlier: PackScalar<F>,
@@ -248,7 +252,7 @@ where
     }
 
     fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError> {
-        if self.symbols == 0 || N == 0 {
+        if self.symbols == 0 || M == 0 {
             return Err(CodingError::NotConfigured);
         }
 
@@ -258,7 +262,7 @@ where
     fn encode_symbol(
         &mut self,
         coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<F, N>, CodingError> {
+    ) -> Result<crate::storage::Symbol<F, M>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -267,12 +271,12 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        let mut result = [F::ZERO; N];
+        let mut result = [F::ZERO; M];
 
         let mut offset = 0;
 
         // Process data in chunks that match the actual PackedField width
-        while offset + PackedType::<OptimalUnderlier, F>::WIDTH <= N {
+        while offset + PackedType::<OptimalUnderlier, F>::WIDTH <= M {
             // Create packed field elements for the result chunk
             let mut packed_result = PackedType::<OptimalUnderlier, F>::zero();
 
@@ -300,7 +304,7 @@ where
         }
 
         // Handle remaining elements with scalar operations
-        while offset < N {
+        while offset < M {
             let mut field_sum = F::ZERO;
             for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
                 if !coeff.is_zero() {
@@ -315,7 +319,7 @@ where
         Ok(Symbol::from_field_elements(&result))
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, N>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, M>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }

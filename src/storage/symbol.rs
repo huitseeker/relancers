@@ -4,20 +4,20 @@ use std::ops::{Index, IndexMut};
 /// A symbol is a fixed-size chunk of data in a network coding context
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Symbol<F, const N: usize>
+pub struct Symbol<F, const M: usize>
 where
     F: BiniusField,
 {
-    data: [F; N],
+    data: [F; M],
 }
 
-impl<F, const N: usize> Symbol<F, N>
+impl<F, const M: usize> Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
     /// Create a new symbol with all elements set to zero
     pub fn new() -> Self {
-        Self { data: [F::ZERO; N] }
+        Self { data: [F::ZERO; M] }
     }
 
     /// Create a zero symbol
@@ -27,12 +27,12 @@ where
 
     /// Get the size of the symbol in elements (const)
     pub const fn len() -> usize {
-        N
+        M
     }
 
-    /// Check if the symbol is empty (always false for N > 0)
+    /// Check if the symbol is empty (always false for M > 0)
     pub const fn is_empty() -> bool {
-        N == 0
+        M == 0
     }
 
     /// Get the underlying data as a slice
@@ -46,7 +46,7 @@ where
     }
 
     /// Get the underlying data
-    pub fn into_inner(self) -> [F; N] {
+    pub fn into_inner(self) -> [F; M] {
         self.data
     }
 
@@ -60,7 +60,7 @@ where
     /// Scale this symbol by a field element
     pub fn scale(&mut self, scalar: F) {
         if scalar.is_zero() {
-            self.data = [F::ZERO; N];
+            self.data = [F::ZERO; M];
         } else if scalar != F::ONE {
             for elem in &mut self.data {
                 *elem *= scalar;
@@ -76,14 +76,14 @@ where
     }
 
     /// Get a mutable reference to the underlying data
-    pub fn data_mut(&mut self) -> &mut [F; N] {
+    pub fn data_mut(&mut self) -> &mut [F; M] {
         &mut self.data
     }
 
     /// Convert from a slice of bytes (panics if slice is wrong size)
     pub fn from_bytes(slice: &[u8]) -> Self {
-        assert_eq!(slice.len(), N, "Slice length must match symbol size");
-        let mut data = [F::ZERO; N];
+        assert_eq!(slice.len(), M, "Slice length must match symbol size");
+        let mut data = [F::ZERO; M];
         for (i, &byte) in slice.iter().enumerate() {
             data[i] = F::from_underlier(byte);
         }
@@ -92,8 +92,8 @@ where
 
     /// Convert from a slice of field elements (panics if slice is wrong size)
     pub fn from_field_elements(elements: &[F]) -> Self {
-        assert_eq!(elements.len(), N, "Slice length must match symbol size");
-        let mut data = [F::ZERO; N];
+        assert_eq!(elements.len(), M, "Slice length must match symbol size");
+        let mut data = [F::ZERO; M];
         data.copy_from_slice(elements);
         Self { data }
     }
@@ -101,11 +101,13 @@ where
     /// Create a symbol filled with a specific byte value
     pub fn filled_from_byte(value: u8) -> Self {
         let field_value = F::from_underlier(value);
-        Self { data: [field_value; N] }
+        Self {
+            data: [field_value; M],
+        }
     }
 }
 
-impl<F, const N: usize> Default for Symbol<F, N>
+impl<F, const M: usize> Default for Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
@@ -114,7 +116,7 @@ where
     }
 }
 
-impl<F, const N: usize> Index<usize> for Symbol<F, N>
+impl<F, const M: usize> Index<usize> for Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
@@ -125,7 +127,7 @@ where
     }
 }
 
-impl<F, const N: usize> IndexMut<usize> for Symbol<F, N>
+impl<F, const M: usize> IndexMut<usize> for Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
@@ -134,12 +136,12 @@ where
     }
 }
 
-impl<F, const N: usize> From<[u8; N]> for Symbol<F, N>
+impl<F, const M: usize> From<[u8; M]> for Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
-    fn from(data: [u8; N]) -> Self {
-        let mut field_data = [F::ZERO; N];
+    fn from(data: [u8; M]) -> Self {
+        let mut field_data = [F::ZERO; M];
         for (i, &byte) in data.iter().enumerate() {
             field_data[i] = F::from_underlier(byte);
         }
@@ -147,16 +149,16 @@ where
     }
 }
 
-impl<F, const N: usize> From<Symbol<F, N>> for [F; N]
+impl<F, const M: usize> From<Symbol<F, M>> for [F; M]
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
-    fn from(symbol: Symbol<F, N>) -> Self {
+    fn from(symbol: Symbol<F, M>) -> Self {
         symbol.into_inner()
     }
 }
 
-impl<F, const N: usize> AsRef<[F]> for Symbol<F, N>
+impl<F, const M: usize> AsRef<[F]> for Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {
@@ -165,7 +167,7 @@ where
     }
 }
 
-impl<F, const N: usize> AsMut<[F]> for Symbol<F, N>
+impl<F, const M: usize> AsMut<[F]> for Symbol<F, M>
 where
     F: BiniusField + WithUnderlier<Underlier = u8>,
 {

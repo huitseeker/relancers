@@ -8,18 +8,19 @@ use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 use std::marker::PhantomData;
 
 /// Reed-Solomon encoder using Binius implementation
-pub struct RsEncoder<F: BiniusField, const N: usize> {
+pub struct RsEncoder<F: BiniusField, const M: usize> {
     /// Number of source symbols (k)
     symbols: usize,
     /// Original data split into symbols
-    data: Vec<Symbol<F, N>>,
+    data: Vec<Symbol<F, M>>,
     /// Total number of symbols (n)
     total_symbols: usize,
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField, const N: usize> RsEncoder<F, N>
-    where F: WithUnderlier<Underlier = u8>,
+impl<F: BiniusField, const M: usize> RsEncoder<F, M>
+where
+    F: WithUnderlier<Underlier = u8>,
 {
     /// Create a new Reed-Solomon encoder
     pub fn new() -> Self {
@@ -38,7 +39,7 @@ impl<F: BiniusField, const N: usize> RsEncoder<F, N>
 
     /// Get the total size of the data in bytes
     pub fn data_size(&self) -> usize {
-        self.symbols * N
+        self.symbols * M
     }
 
     /// Generate a Vandermonde matrix row
@@ -62,9 +63,9 @@ impl<F: BiniusField, const N: usize> RsEncoder<F, N>
 
         self.data.clear();
         for i in 0..self.symbols {
-            let start = i * N;
-            let end = start + N;
-            let symbol_data: [u8; N] = data[start..end].try_into().unwrap();
+            let start = i * M;
+            let end = start + M;
+            let symbol_data: [u8; M] = data[start..end].try_into().unwrap();
             self.data.push(Symbol::from(symbol_data));
         }
 
@@ -72,20 +73,21 @@ impl<F: BiniusField, const N: usize> RsEncoder<F, N>
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RsEncoder<F, N>
-where F: WithUnderlier<Underlier = u8>,
+impl<F: BiniusField, const M: usize> Default for RsEncoder<F, M>
+where
+    F: WithUnderlier<Underlier = u8>,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField, const N: usize> Encoder<F, N> for RsEncoder<F, N>
+impl<F: BiniusField, const M: usize> Encoder<F, M> for RsEncoder<F, M>
 where
     F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
-        if symbols == 0 || N == 0 {
+        if symbols == 0 || M == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
@@ -105,7 +107,7 @@ where
         self.split_into_symbols(data)
     }
 
-    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Symbol<F, N>, CodingError> {
+    fn encode_symbol(&mut self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -115,9 +117,9 @@ where
         }
 
         #[inline(always)]
-        fn encode_byte<F, const N: usize>(
+        fn encode_byte<F, const M: usize>(
             coefficients: &[F],
-            symbols: &[Symbol<F, N>],
+            symbols: &[Symbol<F, M>],
             byte_idx: usize,
         ) -> u8
         where
@@ -135,14 +137,14 @@ where
             byte_sum.to_underlier()
         }
 
-        let mut result = [0u8; N];
-        for byte_idx in 0..N {
+        let mut result = [0u8; M];
+        for byte_idx in 0..M {
             result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
         }
         Ok(Symbol::from(result))
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<F, N>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, Symbol<F, M>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
