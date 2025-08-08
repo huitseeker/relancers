@@ -119,27 +119,6 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
         coeffs
     }
 
-    /// Generate coefficients with specific positions
-    pub fn generate_coefficients_with_positions(
-        &mut self,
-        symbols: usize,
-        positions: &[usize],
-    ) -> Vec<F>
-    where
-        F: WithUnderlier<Underlier = u8>,
-    {
-        let mut coeffs = vec![F::ZERO; symbols];
-
-        for &pos in positions {
-            if pos < symbols {
-                let coeff = self.rng.generate_coefficient();
-                coeffs[pos] = coeff;
-            }
-        }
-
-        coeffs
-    }
-
     /// Get the current configuration
     pub fn config(&self) -> &SparseConfig {
         &self.config
@@ -220,20 +199,6 @@ mod tests {
         let coeffs2 = gen2.generate_coefficients(5);
 
         assert_eq!(coeffs1, coeffs2);
-    }
-
-    #[test]
-    fn test_sparse_generator_with_positions() {
-        let mut generator = SparseCoeffGenerator::<GF256>::new(SparseConfig::default());
-        let positions = vec![0, 2, 4];
-
-        let coeffs = generator.generate_coefficients_with_positions(5, &positions);
-        assert_eq!(coeffs.len(), 5);
-        assert!(!coeffs[0].is_zero());
-        assert!(coeffs[1].is_zero());
-        assert!(!coeffs[2].is_zero());
-        assert!(coeffs[3].is_zero());
-        assert!(!coeffs[4].is_zero());
     }
 
     #[test]

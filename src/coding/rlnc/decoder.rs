@@ -3,7 +3,6 @@ use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
 use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
-use std::marker::PhantomData;
 
 /// Random Linear Network Coding Decoder
 pub struct RlnDecoder<F: BiniusField, const M: usize> {
@@ -25,7 +24,6 @@ pub struct RlnDecoder<F: BiniusField, const M: usize> {
     pivot_rows: Vec<Option<usize>>,
     /// Partially decoded symbols (for streaming)
     partial_symbols: Vec<Option<Symbol<M>>>,
-    _marker: PhantomData<F>,
 }
 
 impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
@@ -41,7 +39,6 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
             current_rank: 0,
             pivot_rows: Vec::new(),
             partial_symbols: Vec::new(),
-            _marker: PhantomData,
         }
     }
 

@@ -6,7 +6,6 @@ use crate::utils::CodingRng;
 use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 use once_cell::sync::OnceCell;
-use std::marker::PhantomData;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
 pub struct RlnEncoder<F: BiniusField, const M: usize> {
@@ -20,7 +19,6 @@ pub struct RlnEncoder<F: BiniusField, const M: usize> {
     sparsity_config: Option<SparseConfig>,
     /// Configured coefficient generator
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
-    _marker: PhantomData<F>,
 }
 
 impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
@@ -32,7 +30,6 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             current_seed: [0u8; 32],
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
-            _marker: PhantomData,
         }
     }
 
@@ -74,7 +71,6 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             current_seed: seed,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
-            _marker: PhantomData,
         }
     }
 
