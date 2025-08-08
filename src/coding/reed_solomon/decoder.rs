@@ -8,19 +8,19 @@ use binius_field::{underlier::WithUnderlier, Field as BiniusField};
 use std::marker::PhantomData;
 
 /// Reed-Solomon decoder using systematic Vandermonde matrices
-pub struct RsDecoder<F: BiniusField, const N: usize> {
+pub struct RsDecoder<F: BiniusField, const M: usize> {
     /// Number of source symbols (k)
     symbols: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol<N>>,
+    received_symbols: Vec<Symbol<M>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol<N>>,
+    decoded_symbols: Vec<Symbol<M>>,
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField, const N: usize> RsDecoder<F, N> {
+impl<F: BiniusField, const M: usize> RsDecoder<F, M> {
     /// Create a new Reed-Solomon decoder
     pub fn new() -> Self {
         Self {
@@ -50,8 +50,8 @@ impl<F: BiniusField, const N: usize> RsDecoder<F, N> {
     fn gaussian_elimination(
         &self,
         matrix: &mut [Vec<F>],
-        rhs: &mut [Symbol<N>],
-    ) -> Result<Vec<Symbol<N>>, CodingError>
+        rhs: &mut [Symbol<M>],
+    ) -> Result<Vec<Symbol<M>>, CodingError>
     where
         F: WithUnderlier<Underlier = u8>,
     {
@@ -121,18 +121,18 @@ impl<F: BiniusField, const N: usize> RsDecoder<F, N> {
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RsDecoder<F, N> {
+impl<F: BiniusField, const M: usize> Default for RsDecoder<F, M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField, const N: usize> Decoder<F, N> for RsDecoder<F, N>
+impl<F: BiniusField, const M: usize> Decoder<F, M> for RsDecoder<F, M>
 where
     F: WithUnderlier<Underlier = u8>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
-        if symbols == 0 || N == 0 {
+        if symbols == 0 || M == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
@@ -144,7 +144,7 @@ where
         Ok(())
     }
 
-    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<N>) -> Result<(), CodingError> {
+    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<M>) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -169,7 +169,7 @@ where
 
         self.decoded_symbols = self.gaussian_elimination(&mut matrix, &mut symbols)?;
 
-        let mut result = Vec::with_capacity(self.symbols * N);
+        let mut result = Vec::with_capacity(self.symbols * M);
         for symbol in &self.decoded_symbols {
             result.extend_from_slice(symbol.as_slice());
         }

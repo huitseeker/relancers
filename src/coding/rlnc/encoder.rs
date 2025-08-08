@@ -9,11 +9,11 @@ use once_cell::sync::OnceCell;
 use std::marker::PhantomData;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
-pub struct RlnEncoder<F: BiniusField, const N: usize> {
+pub struct RlnEncoder<F: BiniusField, const M: usize> {
     /// Number of source symbols
     symbols: usize,
     /// Original data split into symbols
-    data: Vec<Symbol<N>>,
+    data: Vec<Symbol<M>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Current sparsity configuration
@@ -23,7 +23,7 @@ pub struct RlnEncoder<F: BiniusField, const N: usize> {
     _marker: PhantomData<F>,
 }
 
-impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
+impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
     /// Create a new RLNC encoder
     pub fn new() -> Self {
         Self {
@@ -80,7 +80,7 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
 
     /// Get the total size of the data in bytes
     pub fn data_size(&self) -> usize {
-        self.symbols * N
+        self.symbols * M
     }
 
     /// Split data into symbols
@@ -91,9 +91,9 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
 
         self.data.clear();
         for i in 0..self.symbols {
-            let start = i * N;
-            let end = start + N;
-            let mut symbol_data = [0u8; N];
+            let start = i * M;
+            let end = start + M;
+            let mut symbol_data = [0u8; M];
             symbol_data.copy_from_slice(&data[start..end]);
             self.data.push(Symbol::from_data(symbol_data));
         }
@@ -221,13 +221,13 @@ impl<F: BiniusField, const N: usize> RlnEncoder<F, N> {
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RlnEncoder<F, N> {
+impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField, const N: usize> Encoder<F, N> for RlnEncoder<F, N>
+impl<F: BiniusField, const M: usize> Encoder<F, M> for RlnEncoder<F, M>
 where
     F: WithUnderlier<Underlier = u8>,
 {
@@ -244,7 +244,7 @@ where
     }
 
     fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError> {
-        if self.symbols == 0 || N == 0 {
+        if self.symbols == 0 || M == 0 {
             return Err(CodingError::NotConfigured);
         }
 
@@ -254,7 +254,7 @@ where
     fn encode_symbol(
         &mut self,
         coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<N>, CodingError> {
+    ) -> Result<crate::storage::Symbol<M>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -265,9 +265,9 @@ where
 
         // Use optimized encoding with specialized conversion paths
         #[inline(always)]
-        fn encode_byte<F, const N: usize>(
+        fn encode_byte<F, const M: usize>(
             coefficients: &[F],
-            symbols: &[Symbol<N>],
+            symbols: &[Symbol<M>],
             byte_idx: usize,
         ) -> u8
         where
@@ -286,14 +286,14 @@ where
             byte_sum.to_underlier()
         }
 
-        let mut result = [0u8; N];
-        for byte_idx in 0..N {
+        let mut result = [0u8; M];
+        for byte_idx in 0..M {
             result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
         }
         Ok(Symbol::from_data(result))
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<N>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
