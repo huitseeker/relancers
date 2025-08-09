@@ -1,7 +1,7 @@
 //! Sparse coefficient generation for RLNC with configurable sparsity levels
 
 use crate::utils::CodingRng;
-use binius_field::{underlier::WithUnderlier, Field as BiniusField};
+use binius_field::Field as BiniusField;
 
 /// Configuration for sparse coefficient generation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -92,7 +92,7 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
     /// Generate sparse coefficients for RLNC
     pub fn generate_coefficients(&mut self, symbols: usize) -> Vec<F>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         let mut coeffs = vec![F::ZERO; symbols];
         let non_zeros = self.config.calculate_non_zeros(symbols);
@@ -113,7 +113,7 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
 
         // Ensure at least one non-zero coefficient if min_non_zeros > 0
         if coeffs.iter().all(|c| c.is_zero()) && non_zeros > 0 {
-            coeffs[0] = F::from_underlier(1u8);
+            coeffs[0] = F::from(1u8);
         }
 
         coeffs

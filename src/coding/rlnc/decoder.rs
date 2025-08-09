@@ -1,7 +1,6 @@
 use crate::coding::rlnc::optimized_matrix::OptimizedMatrix;
 use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
-use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 
 /// Random Linear Network Coding Decoder
@@ -69,7 +68,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     /// Perform incremental Gaussian elimination and diagonalization
     fn incremental_diagonalization(&mut self) -> Result<(), CodingError>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         if self.coefficients.is_empty() {
             return Ok(());
@@ -120,7 +119,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     /// Perform Gaussian elimination to solve the system using the optimized matrix
     fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<M>>, CodingError>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         if !self.can_decode() {
             return Err(CodingError::InsufficientData);
@@ -223,7 +222,7 @@ impl<F: BiniusField, const M: usize> Default for RlnDecoder<F, M> {
 
 impl<F: BiniusField, const M: usize> Decoder<F, M> for RlnDecoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
         if symbols == 0 || M == 0 {
@@ -300,7 +299,7 @@ where
 
 impl<F: BiniusField, const M: usize> StreamingDecoder<F, M> for RlnDecoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn current_rank(&self) -> usize {
         self.current_rank
@@ -336,7 +335,7 @@ where
 impl<F: BiniusField, const M: usize> crate::coding::traits::RecodingDecoder<F, M>
     for RlnDecoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn recode(
         &mut self,

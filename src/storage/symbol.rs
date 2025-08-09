@@ -1,4 +1,4 @@
-use binius_field::{underlier::WithUnderlier, Field as BiniusField};
+use binius_field::Field as BiniusField;
 use std::ops::{Index, IndexMut};
 
 /// A symbol is a fixed-size chunk of data in a network coding context
@@ -59,7 +59,7 @@ impl<const M: usize> Symbol<M> {
     /// Scale this symbol by a field element
     pub fn scale<F>(&mut self, scalar: F)
     where
-        F: BiniusField + WithUnderlier<Underlier = u8>,
+        F: BiniusField + From<u8> + Into<u8>,
     {
         if scalar.is_zero() {
             self.data = [0u8; M];
@@ -67,14 +67,14 @@ impl<const M: usize> Symbol<M> {
             #[inline(always)]
             fn scale_byte<F>(byte: &mut u8, scalar: F)
             where
-                F: BiniusField + WithUnderlier<Underlier = u8>,
+                F: BiniusField + From<u8> + Into<u8>,
             {
                 if *byte == 0 {
                     return;
                 }
-                let field_byte = F::from_underlier(*byte);
+                let field_byte = F::from(*byte);
                 let scaled = field_byte * scalar;
-                *byte = scaled.to_underlier();
+                *byte = scaled.into();
             }
 
             for byte in &mut self.data {
@@ -86,7 +86,7 @@ impl<const M: usize> Symbol<M> {
     /// Create a copy of this symbol scaled by a field element
     pub fn scaled<F>(&self, scalar: F) -> Self
     where
-        F: BiniusField + WithUnderlier<Underlier = u8>,
+        F: BiniusField + From<u8> + Into<u8>,
     {
         let mut result = self.clone();
         result.scale(scalar);

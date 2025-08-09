@@ -2,7 +2,7 @@
 
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
-use binius_field::{underlier::WithUnderlier, Field as BiniusField};
+use binius_field::Field as BiniusField;
 // Note: Using our own Reed-Solomon implementation as Binius RS functions aren't available directly
 // The implementation uses systematic Vandermonde matrices for compatibility
 use std::marker::PhantomData;
@@ -78,7 +78,7 @@ impl<F: BiniusField, const M: usize> Default for RsEncoder<F, M> {
 
 impl<F: BiniusField, const M: usize> Encoder<F, M> for RsEncoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
         if symbols == 0 || M == 0 {
@@ -117,19 +117,19 @@ where
             byte_idx: usize,
         ) -> u8
         where
-            F: BiniusField + WithUnderlier<Underlier = u8>,
+            F: BiniusField + From<u8> + Into<u8>,
         {
             let mut byte_sum = F::ZERO;
             for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
                 if !coeff.is_zero() {
                     let byte = symbol.as_slice()[byte_idx];
                     if byte != 0 {
-                        let field_byte = F::from_underlier(byte);
+                        let field_byte = F::from(byte);
                         byte_sum += *coeff * field_byte;
                     }
                 }
             }
-            byte_sum.to_underlier()
+            byte_sum.into()
         }
 
         let mut result = [0u8; M];
@@ -150,7 +150,7 @@ where
 
         // Generate evaluation point (symbol index)
         let index = (self.data.len() % self.total_symbols) as u8;
-        let point = F::from_underlier(index);
+        let point = F::from(index);
         let coefficients = self.vandermonde_row(point, self.symbols);
         let symbol = self.encode_symbol(&coefficients)?;
 

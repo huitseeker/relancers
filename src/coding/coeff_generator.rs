@@ -1,6 +1,6 @@
 use crate::coding::sparse::SparseCoeffGenerator;
 use crate::utils::CodingRng;
-use binius_field::{underlier::WithUnderlier, Field as BiniusField};
+use binius_field::Field as BiniusField;
 use enum_dispatch::enum_dispatch;
 
 /// Trait for coefficient generation in RLNC
@@ -9,7 +9,7 @@ pub trait CoeffGenerator<F: BiniusField> {
     /// Generate coefficients for the given number of symbols
     fn generate_coefficients(&mut self, symbols: usize) -> Vec<F>
     where
-        F: WithUnderlier<Underlier = u8>;
+        F: From<u8> + Into<u8>;
 
     /// Set the seed for deterministic coefficient generation
     fn set_seed(&mut self, seed: [u8; 32]);
@@ -19,7 +19,7 @@ pub trait CoeffGenerator<F: BiniusField> {
 impl<F: BiniusField> CoeffGenerator<F> for CodingRng {
     fn generate_coefficients(&mut self, symbols: usize) -> Vec<F>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         self.generate_coefficients(symbols)
     }
@@ -33,7 +33,7 @@ impl<F: BiniusField> CoeffGenerator<F> for CodingRng {
 impl<F: BiniusField> CoeffGenerator<F> for SparseCoeffGenerator<F> {
     fn generate_coefficients(&mut self, symbols: usize) -> Vec<F>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         self.generate_coefficients(symbols)
     }

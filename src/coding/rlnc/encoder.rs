@@ -3,7 +3,6 @@ use crate::coding::sparse::{SparseCoeffGenerator, SparseConfig};
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
-use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
 use once_cell::sync::OnceCell;
 
@@ -125,7 +124,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
     /// Generate coefficients with optional sparse generation
     pub fn generate_coefficients(&mut self) -> Vec<F>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         let symbols = self.symbols;
         let generator = self.get_coeff_generator();
@@ -165,7 +164,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
     /// Get sparsity statistics for the given coefficients
     pub fn sparsity_stats(&self, coeffs: &[F]) -> SparsityStats
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         let total = coeffs.len();
         let non_zeros = coeffs.iter().filter(|c| !c.is_zero()).count();
@@ -225,7 +224,7 @@ impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> {
 
 impl<F: BiniusField, const M: usize> Encoder<F, M> for RlnEncoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
         if symbols == 0 {
@@ -267,19 +266,19 @@ where
             byte_idx: usize,
         ) -> u8
         where
-            F: BiniusField + WithUnderlier<Underlier = u8>,
+            F: BiniusField + From<u8> + Into<u8>,
         {
             let mut byte_sum = F::ZERO;
             for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
                 if !coeff.is_zero() {
                     let byte = symbol.as_slice()[byte_idx];
                     if byte != 0 {
-                        let field_byte = F::from_underlier(byte);
+                        let field_byte = F::from(byte);
                         byte_sum += *coeff * field_byte;
                     }
                 }
             }
-            byte_sum.to_underlier()
+            byte_sum.into()
         }
 
         let mut result = [0u8; M];
