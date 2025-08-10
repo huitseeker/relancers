@@ -1,22 +1,20 @@
 use crate::coding::rlnc::optimized_matrix::OptimizedMatrix;
 use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
-use binius_field::underlier::WithUnderlier;
 use binius_field::Field as BiniusField;
-use std::marker::PhantomData;
 
 /// Random Linear Network Coding Decoder
-pub struct RlnDecoder<F: BiniusField, const N: usize> {
+pub struct RlnDecoder<F: BiniusField, const M: usize> {
     /// Number of source symbols
     symbols: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol<N>>,
+    received_symbols: Vec<Symbol<M>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Optimized Gaussian elimination matrix with RREF maintenance
     matrix: OptimizedMatrix<F>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol<N>>,
+    decoded_symbols: Vec<Symbol<M>>,
     /// Track which symbols are decoded
     decoded: Vec<bool>,
     /// Current rank of the decoding matrix
@@ -24,11 +22,10 @@ pub struct RlnDecoder<F: BiniusField, const N: usize> {
     /// Pivot row indices for incremental diagonalization
     pivot_rows: Vec<Option<usize>>,
     /// Partially decoded symbols (for streaming)
-    partial_symbols: Vec<Option<Symbol<N>>>,
-    _marker: PhantomData<F>,
+    partial_symbols: Vec<Option<Symbol<M>>>,
 }
 
-impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
+impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     /// Create a new RLNC decoder
     pub fn new() -> Self {
         Self {
@@ -41,7 +38,6 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
             current_rank: 0,
             pivot_rows: Vec::new(),
             partial_symbols: Vec::new(),
-            _marker: PhantomData,
         }
     }
 
@@ -72,7 +68,7 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
     /// Perform incremental Gaussian elimination and diagonalization
     fn incremental_diagonalization(&mut self) -> Result<(), CodingError>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         if self.coefficients.is_empty() {
             return Ok(());
@@ -102,7 +98,7 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
                 self.decoded[col] = true;
 
                 // Update partially decoded symbols based on RREF
-                let mut new_symbol = Symbol::<N>::zero();
+                let mut new_symbol = Symbol::<M>::zero();
 
                 // Build the solution for this column
                 let row_coefficients = self.matrix.get_row(pivot_row);
@@ -121,9 +117,9 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
     }
 
     /// Perform Gaussian elimination to solve the system using the optimized matrix
-    fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<N>>, CodingError>
+    fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<M>>, CodingError>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         if !self.can_decode() {
             return Err(CodingError::InsufficientData);
@@ -218,18 +214,18 @@ impl<F: BiniusField, const N: usize> RlnDecoder<F, N> {
     }
 }
 
-impl<F: BiniusField, const N: usize> Default for RlnDecoder<F, N> {
+impl<F: BiniusField, const M: usize> Default for RlnDecoder<F, M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: BiniusField, const N: usize> Decoder<F, N> for RlnDecoder<F, N>
+impl<F: BiniusField, const M: usize> Decoder<F, M> for RlnDecoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
-        if symbols == 0 || N == 0 {
+        if symbols == 0 || M == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
@@ -252,7 +248,7 @@ where
     fn add_symbol(
         &mut self,
         coefficients: &[F],
-        symbol: &crate::storage::Symbol<N>,
+        symbol: &crate::storage::Symbol<M>,
     ) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
@@ -284,7 +280,7 @@ where
         self.init_matrix();
         self.decoded_symbols = self.gaussian_elimination()?;
 
-        let mut result = Vec::with_capacity(self.symbols * N);
+        let mut result = Vec::with_capacity(self.symbols * M);
         for symbol in &self.decoded_symbols {
             result.extend_from_slice(symbol.as_slice());
         }
@@ -301,9 +297,9 @@ where
     }
 }
 
-impl<F: BiniusField, const N: usize> StreamingDecoder<F, N> for RlnDecoder<F, N>
+impl<F: BiniusField, const M: usize> StreamingDecoder<F, M> for RlnDecoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn current_rank(&self) -> usize {
         self.current_rank
@@ -323,7 +319,7 @@ where
     fn decode_symbol(
         &mut self,
         index: usize,
-    ) -> Result<Option<crate::storage::Symbol<N>>, CodingError> {
+    ) -> Result<Option<crate::storage::Symbol<M>>, CodingError> {
         if index >= self.symbols {
             return Ok(None);
         }
@@ -336,15 +332,15 @@ where
     }
 }
 
-impl<F: BiniusField, const N: usize> crate::coding::traits::RecodingDecoder<F, N>
-    for RlnDecoder<F, N>
+impl<F: BiniusField, const M: usize> crate::coding::traits::RecodingDecoder<F, M>
+    for RlnDecoder<F, M>
 where
-    F: WithUnderlier<Underlier = u8>,
+    F: From<u8> + Into<u8>,
 {
     fn recode(
         &mut self,
         recode_coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<N>, CodingError> {
+    ) -> Result<crate::storage::Symbol<M>, CodingError> {
         if recode_coefficients.len() != self.coefficients.len() {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -353,7 +349,7 @@ where
             return Err(CodingError::InsufficientData);
         }
 
-        let mut recoded_symbol = Symbol::<N>::zero();
+        let mut recoded_symbol = Symbol::<M>::zero();
 
         // Linear combination of received symbols using recode coefficients
         for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {

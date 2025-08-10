@@ -1,7 +1,7 @@
 //! Sparse coefficient generation for RLNC with configurable sparsity levels
 
 use crate::utils::CodingRng;
-use binius_field::{underlier::WithUnderlier, Field as BiniusField};
+use binius_field::Field as BiniusField;
 
 /// Configuration for sparse coefficient generation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -92,7 +92,7 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
     /// Generate sparse coefficients for RLNC
     pub fn generate_coefficients(&mut self, symbols: usize) -> Vec<F>
     where
-        F: WithUnderlier<Underlier = u8>,
+        F: From<u8> + Into<u8>,
     {
         let mut coeffs = vec![F::ZERO; symbols];
         let non_zeros = self.config.calculate_non_zeros(symbols);
@@ -113,28 +113,7 @@ impl<F: BiniusField> SparseCoeffGenerator<F> {
 
         // Ensure at least one non-zero coefficient if min_non_zeros > 0
         if coeffs.iter().all(|c| c.is_zero()) && non_zeros > 0 {
-            coeffs[0] = F::from_underlier(1u8);
-        }
-
-        coeffs
-    }
-
-    /// Generate coefficients with specific positions
-    pub fn generate_coefficients_with_positions(
-        &mut self,
-        symbols: usize,
-        positions: &[usize],
-    ) -> Vec<F>
-    where
-        F: WithUnderlier<Underlier = u8>,
-    {
-        let mut coeffs = vec![F::ZERO; symbols];
-
-        for &pos in positions {
-            if pos < symbols {
-                let coeff = self.rng.generate_coefficient();
-                coeffs[pos] = coeff;
-            }
+            coeffs[0] = F::from(1u8);
         }
 
         coeffs
@@ -220,20 +199,6 @@ mod tests {
         let coeffs2 = gen2.generate_coefficients(5);
 
         assert_eq!(coeffs1, coeffs2);
-    }
-
-    #[test]
-    fn test_sparse_generator_with_positions() {
-        let mut generator = SparseCoeffGenerator::<GF256>::new(SparseConfig::default());
-        let positions = vec![0, 2, 4];
-
-        let coeffs = generator.generate_coefficients_with_positions(5, &positions);
-        assert_eq!(coeffs.len(), 5);
-        assert!(!coeffs[0].is_zero());
-        assert!(coeffs[1].is_zero());
-        assert!(!coeffs[2].is_zero());
-        assert!(coeffs[3].is_zero());
-        assert!(!coeffs[4].is_zero());
     }
 
     #[test]
