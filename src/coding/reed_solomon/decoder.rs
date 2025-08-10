@@ -12,11 +12,11 @@ pub struct RsDecoder<F: BiniusField, const M: usize> {
     /// Number of source symbols (k)
     symbols: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol<M>>,
+    received_symbols: Vec<Symbol<F, M>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol<M>>,
+    decoded_symbols: Vec<Symbol<F, M>>,
     _marker: PhantomData<F>,
 }
 
@@ -50,8 +50,8 @@ impl<F: BiniusField, const M: usize> RsDecoder<F, M> {
     fn gaussian_elimination(
         &self,
         matrix: &mut [Vec<F>],
-        rhs: &mut [Symbol<M>],
-    ) -> Result<Vec<Symbol<M>>, CodingError>
+        rhs: &mut [Symbol<F, M>],
+    ) -> Result<Vec<Symbol<F, M>>, CodingError>
     where
         F: From<u8> + Into<u8>,
     {
@@ -107,7 +107,7 @@ impl<F: BiniusField, const M: usize> RsDecoder<F, M> {
         }
 
         // Extract solution
-        let mut solution = vec![Symbol::zero(); n];
+        let mut solution = vec![Symbol::<F, M>::zero(); n];
         for (i, row) in matrix.iter().enumerate().take(n) {
             for (j, &coeff) in row.iter().enumerate().take(n) {
                 if !coeff.is_zero() {
@@ -144,7 +144,7 @@ where
         Ok(())
     }
 
-    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<M>) -> Result<(), CodingError> {
+    fn add_symbol(&mut self, coefficients: &[F], symbol: &Symbol<F, M>) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -171,7 +171,10 @@ where
 
         let mut result = Vec::with_capacity(self.symbols * M);
         for symbol in &self.decoded_symbols {
-            result.extend_from_slice(symbol.as_slice());
+            for field_element in symbol.as_slice() {
+                let byte: u8 = (*field_element).into();
+                result.push(byte);
+            }
         }
 
         Ok(result)
@@ -206,7 +209,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
 
         assert!(decoder.add_symbol(&coeffs, &symbol).is_ok());
         assert_eq!(decoder.coefficients.len(), 1);
@@ -218,7 +221,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
 
         decoder.add_symbol(&coeffs, &symbol).unwrap();
         assert!(!decoder.can_decode());
@@ -282,7 +285,7 @@ mod tests {
     fn test_rs_decoder_not_configured() {
         let mut decoder = RsDecoder::<GF256, 4>::new();
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -292,7 +295,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1)]; // Wrong length
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 

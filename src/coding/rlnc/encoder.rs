@@ -10,8 +10,8 @@ use once_cell::sync::OnceCell;
 pub struct RlnEncoder<F: BiniusField, const M: usize> {
     /// Number of source symbols
     symbols: usize,
-    /// Original data split into symbols
-    data: Vec<Symbol<M>>,
+    /// Original data split into symbols (pre-converted to field elements)
+    data: Vec<Symbol<F, M>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Current sparsity configuration
@@ -78,8 +78,11 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.symbols * M
     }
 
-    /// Split data into symbols
-    fn split_into_symbols(&mut self, data: &[u8]) -> Result<(), CodingError> {
+    /// Split data into symbols and pre-convert to field elements
+    fn split_into_symbols(&mut self, data: &[u8]) -> Result<(), CodingError>
+    where
+        F: From<u8>,
+    {
         if data.len() != self.data_size() {
             return Err(CodingError::InvalidDataSize);
         }
@@ -88,8 +91,10 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         for i in 0..self.symbols {
             let start = i * M;
             let end = start + M;
-            let mut symbol_data = [0u8; M];
-            symbol_data.copy_from_slice(&data[start..end]);
+            let mut symbol_data = [F::ZERO; M];
+            for (j, &byte) in data[start..end].iter().enumerate() {
+                symbol_data[j] = F::from(byte);
+            }
             self.data.push(Symbol::from_data(symbol_data));
         }
 
@@ -238,7 +243,10 @@ where
         Ok(())
     }
 
-    fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError> {
+    fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError>
+    where
+        F: From<u8>,
+    {
         if self.symbols == 0 || M == 0 {
             return Err(CodingError::NotConfigured);
         }
@@ -249,7 +257,7 @@ where
     fn encode_symbol(
         &mut self,
         coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<M>, CodingError> {
+    ) -> Result<crate::storage::Symbol<F, M>, CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -258,37 +266,34 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        // Use optimized encoding with specialized conversion paths
+        // Use optimized encoding with pre-converted field elements
         #[inline(always)]
-        fn encode_byte<F, const M: usize>(
+        fn encode_field_element<F, const M: usize>(
             coefficients: &[F],
-            symbols: &[Symbol<M>],
-            byte_idx: usize,
-        ) -> u8
+            symbols: &[Symbol<F, M>],
+            element_idx: usize,
+        ) -> F
         where
-            F: BiniusField + From<u8> + Into<u8>,
+            F: BiniusField,
         {
-            let mut byte_sum = F::ZERO;
+            let mut element_sum = F::ZERO;
             for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
                 if !coeff.is_zero() {
-                    let byte = symbol.as_slice()[byte_idx];
-                    if byte != 0 {
-                        let field_byte = F::from(byte);
-                        byte_sum += *coeff * field_byte;
-                    }
+                    let field_element = symbol.as_slice()[element_idx];
+                    element_sum += *coeff * field_element;
                 }
             }
-            byte_sum.into()
+            element_sum
         }
 
-        let mut result = [0u8; M];
-        for byte_idx in 0..M {
-            result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
+        let mut result = [F::ZERO; M];
+        for element_idx in 0..M {
+            result[element_idx] = encode_field_element(coefficients, &self.data, element_idx);
         }
         Ok(Symbol::from_data(result))
     }
 
-    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError> {
+    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, M>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
         }
@@ -359,7 +364,7 @@ mod tests {
         let encoded = encoder.encode_symbol(&coeffs).unwrap();
 
         // With proper GF(256) multiplication using AESTowerField8b
-        let expected = Symbol::<4>::from_data([11, 14, 13, 20]); // Actual result with AESTowerField8b
+        let expected = Symbol::from_data([GF256::from(11), GF256::from(14), GF256::from(13), GF256::from(20)]); // Actual result with AESTowerField8b
         assert_eq!(encoded, expected);
     }
 
@@ -947,9 +952,9 @@ mod tests {
         let result = encoder.encode_symbol(&coeffs).unwrap();
 
         // First byte should be 1, rest should be 0
-        assert_eq!(result[0], 1);
+        assert_eq!(result[0], GF256::from(1));
         for &byte in &result.into_inner()[1..] {
-            assert_eq!(byte, 0);
+            assert_eq!(byte, GF256::ZERO);
         }
     }
 }

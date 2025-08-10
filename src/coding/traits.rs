@@ -55,16 +55,18 @@ pub trait Encoder<F: BiniusField, const M: usize> {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError>;
 
     /// Set the data to be encoded
-    fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError>;
+    fn set_data(&mut self, data: &[u8]) -> Result<(), CodingError>
+    where
+        F: From<u8>;
 
     /// Generate an encoded symbol
     fn encode_symbol(
         &mut self,
         coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<M>, CodingError>;
+    ) -> Result<crate::storage::Symbol<F, M>, CodingError>;
 
     /// Generate a coded packet with coefficients
-    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError>;
+    fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, M>), CodingError>;
 
     /// Get the number of source symbols
     fn symbols(&self) -> usize;
@@ -79,7 +81,7 @@ pub trait Decoder<F: BiniusField, const M: usize> {
     fn add_symbol(
         &mut self,
         coefficients: &[F],
-        symbol: &crate::storage::Symbol<M>,
+        symbol: &crate::storage::Symbol<F, M>,
     ) -> Result<(), CodingError>;
 
     /// Check if decoding is possible
@@ -110,7 +112,7 @@ pub trait StreamingDecoder<F: BiniusField, const M: usize>: Decoder<F, M> {
     fn decode_symbol(
         &mut self,
         index: usize,
-    ) -> Result<Option<crate::storage::Symbol<M>>, CodingError>;
+    ) -> Result<Option<crate::storage::Symbol<F, M>>, CodingError>;
 
     /// Check if new coefficients would increase the matrix rank
     fn check_rank_increase(&self, coefficients: &[F]) -> bool;
@@ -133,7 +135,7 @@ pub trait RecodingDecoder<F: BiniusField, const M: usize>: Decoder<F, M> {
     fn recode(
         &mut self,
         recode_coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<M>, CodingError>;
+    ) -> Result<crate::storage::Symbol<F, M>, CodingError>;
 
     /// Check if the decoder has enough symbols to act as a recoder
     fn can_recode(&self) -> bool;
@@ -145,7 +147,10 @@ pub trait RecodingDecoder<F: BiniusField, const M: usize>: Decoder<F, M> {
 /// Trait for streaming network encoders
 pub trait StreamingEncoder<F: BiniusField, const M: usize>: Encoder<F, M> {
     /// Generate a specific encoded symbol by index (for systematic codes)
-    fn encode_symbol_at(&mut self, index: usize) -> Result<crate::storage::Symbol<M>, CodingError>;
+    fn encode_symbol_at(
+        &mut self,
+        index: usize,
+    ) -> Result<crate::storage::Symbol<F, M>, CodingError>;
 
     /// Get the current encoding position (for carousel/streaming)
     fn current_position(&self) -> usize;

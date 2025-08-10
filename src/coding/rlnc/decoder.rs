@@ -8,13 +8,13 @@ pub struct RlnDecoder<F: BiniusField, const M: usize> {
     /// Number of source symbols
     symbols: usize,
     /// Received coded symbols
-    received_symbols: Vec<Symbol<M>>,
+    received_symbols: Vec<Symbol<F, M>>,
     /// Corresponding coefficient vectors
     coefficients: Vec<Vec<F>>,
     /// Optimized Gaussian elimination matrix with RREF maintenance
     matrix: OptimizedMatrix<F>,
     /// Decoded symbols
-    decoded_symbols: Vec<Symbol<M>>,
+    decoded_symbols: Vec<Symbol<F, M>>,
     /// Track which symbols are decoded
     decoded: Vec<bool>,
     /// Current rank of the decoding matrix
@@ -22,7 +22,7 @@ pub struct RlnDecoder<F: BiniusField, const M: usize> {
     /// Pivot row indices for incremental diagonalization
     pivot_rows: Vec<Option<usize>>,
     /// Partially decoded symbols (for streaming)
-    partial_symbols: Vec<Option<Symbol<M>>>,
+    partial_symbols: Vec<Option<Symbol<F, M>>>,
 }
 
 impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
@@ -98,7 +98,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                 self.decoded[col] = true;
 
                 // Update partially decoded symbols based on RREF
-                let mut new_symbol = Symbol::<M>::zero();
+                let mut new_symbol = Symbol::<F, M>::zero();
 
                 // Build the solution for this column
                 let row_coefficients = self.matrix.get_row(pivot_row);
@@ -117,7 +117,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     }
 
     /// Perform Gaussian elimination to solve the system using the optimized matrix
-    fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<M>>, CodingError>
+    fn gaussian_elimination(&mut self) -> Result<Vec<Symbol<F, M>>, CodingError>
     where
         F: From<u8> + Into<u8>,
     {
@@ -248,7 +248,7 @@ where
     fn add_symbol(
         &mut self,
         coefficients: &[F],
-        symbol: &crate::storage::Symbol<M>,
+        symbol: &crate::storage::Symbol<F, M>,
     ) -> Result<(), CodingError> {
         if coefficients.len() != self.symbols {
             return Err(CodingError::InvalidCoefficients);
@@ -282,7 +282,10 @@ where
 
         let mut result = Vec::with_capacity(self.symbols * M);
         for symbol in &self.decoded_symbols {
-            result.extend_from_slice(symbol.as_slice());
+            for field_element in symbol.as_slice() {
+                let byte: u8 = (*field_element).into();
+                result.push(byte);
+            }
         }
 
         Ok(result)
@@ -319,7 +322,7 @@ where
     fn decode_symbol(
         &mut self,
         index: usize,
-    ) -> Result<Option<crate::storage::Symbol<M>>, CodingError> {
+    ) -> Result<Option<crate::storage::Symbol<F, M>>, CodingError> {
         if index >= self.symbols {
             return Ok(None);
         }
@@ -340,7 +343,7 @@ where
     fn recode(
         &mut self,
         recode_coefficients: &[F],
-    ) -> Result<crate::storage::Symbol<M>, CodingError> {
+    ) -> Result<crate::storage::Symbol<F, M>, CodingError> {
         if recode_coefficients.len() != self.coefficients.len() {
             return Err(CodingError::InvalidCoefficients);
         }
@@ -349,7 +352,7 @@ where
             return Err(CodingError::InsufficientData);
         }
 
-        let mut recoded_symbol = Symbol::<M>::zero();
+        let mut recoded_symbol = Symbol::<F, M>::zero();
 
         // Linear combination of received symbols using recode coefficients
         for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {
@@ -397,7 +400,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
 
         assert!(decoder.add_symbol(&coeffs, &symbol).is_ok());
         assert_eq!(decoder.symbols_received(), 1);
@@ -409,7 +412,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
 
         decoder.add_symbol(&coeffs, &symbol).unwrap();
         assert!(!decoder.can_decode());
@@ -578,18 +581,17 @@ mod tests {
             .zip(coeffs2.iter())
             .map(|(a, b)| *a + *b)
             .collect();
-        let redundant_symbol = symbol1
-            .into_inner()
-            .iter()
-            .zip(symbol2.into_inner().iter())
-            .map(|(a, b)| *a ^ *b)
-            .collect::<Vec<u8>>()
-            .try_into()
-            .unwrap();
+        let redundant_symbol: [GF256; 4] = [
+            symbol1[0] + symbol2[0],
+            symbol1[1] + symbol2[1],
+            symbol1[2] + symbol2[2],
+            symbol1[3] + symbol2[3],
+        ];
 
         // Should detect this as redundant
         assert!(!decoder.check_rank_increase(&redundant_coeffs));
-        let result = decoder.add_symbol(&redundant_coeffs, &Symbol::from_data(redundant_symbol));
+        let redundant_symbol_obj = Symbol::<GF256, 4>::from_data(redundant_symbol);
+        let result = decoder.add_symbol(&redundant_coeffs, &redundant_symbol_obj);
         assert!(matches!(result, Err(CodingError::RedundantContribution)));
 
         // Rank should not increase
@@ -611,14 +613,14 @@ mod tests {
         // First coefficient should increase rank
         assert!(decoder.check_rank_increase(&coeffs1));
         decoder
-            .add_symbol(&coeffs1, &Symbol::from_data([1, 2, 3, 4]))
+            .add_symbol(&coeffs1, &Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]))
             .unwrap();
         assert_eq!(decoder.current_rank(), 1);
 
         // Second coefficient should increase rank
         assert!(decoder.check_rank_increase(&coeffs2));
         decoder
-            .add_symbol(&coeffs2, &Symbol::from_data([5, 6, 7, 8]))
+            .add_symbol(&coeffs2, &Symbol::<GF256, 4>::from_data([GF256::from(5), GF256::from(6), GF256::from(7), GF256::from(8)]))
             .unwrap();
         assert_eq!(decoder.current_rank(), 2);
 
@@ -658,7 +660,7 @@ mod tests {
     fn test_decoder_not_configured() {
         let mut decoder = RlnDecoder::<GF256, 4>::new();
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -668,7 +670,7 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1)]; // Wrong length
-        let symbol = Symbol::from_data([1, 2, 3, 4]);
+        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -1051,8 +1053,8 @@ mod tests {
         let _symbol2 = [5, 6, 7, 8]; // Second original symbol
 
         // Create encoded symbols: c1*symbol1 + c2*symbol2
-        let encoded1 = Symbol::from_data([1, 2, 3, 4]); // 1*symbol1 + 0*symbol2
-        let encoded2 = Symbol::from_data([5, 6, 7, 8]); // 0*symbol1 + 1*symbol2
+        let encoded1 = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]); // 1*symbol1 + 0*symbol2
+        let encoded2 = Symbol::<GF256, 4>::from_data([GF256::from(5), GF256::from(6), GF256::from(7), GF256::from(8)]); // 0*symbol1 + 1*symbol2
 
         // Relay receives symbols
         relay_decoder.add_symbol(&coeffs1, &encoded1).unwrap();
@@ -1148,7 +1150,9 @@ mod tests {
         // Test with zero coefficients (should produce zero symbol)
         let zero_coeffs = vec![GF256::ZERO, GF256::ZERO];
         let result = decoder.recode(&zero_coeffs).unwrap();
-        assert_eq!(result.into_inner(), [0u8; 4]);
+        let expected: [u8; 4] = [0, 0, 0, 0];
+        let actual: [u8; 4] = result.into_inner().map(|f| f.into());
+        assert_eq!(actual, expected);
     }
 
     #[test]

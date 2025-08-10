@@ -4,18 +4,18 @@ use std::ops::{Index, IndexMut};
 /// A symbol is a fixed-size chunk of data in a network coding context
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Symbol<const M: usize> {
-    data: [u8; M],
+pub struct Symbol<F: BiniusField, const M: usize> {
+    data: [F; M],
 }
 
-impl<const M: usize> Symbol<M> {
-    /// Create a new symbol with all bytes set to 0
+impl<F: BiniusField, const M: usize> Symbol<F, M> {
+    /// Create a new symbol with all elements set to zero
     pub fn new() -> Self {
-        Self { data: [0u8; M] }
+        Self { data: [F::ZERO; M] }
     }
 
-    /// Create a new symbol from existing data
-    pub fn from_data(data: [u8; M]) -> Self {
+    /// Create a new symbol from existing field elements
+    pub fn from_data(data: [F; M]) -> Self {
         Self { data }
     }
 
@@ -35,123 +35,111 @@ impl<const M: usize> Symbol<M> {
     }
 
     /// Get the underlying data as a slice
-    pub fn as_slice(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[F] {
         &self.data
     }
 
     /// Get the underlying data as a mutable slice
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub fn as_mut_slice(&mut self) -> &mut [F] {
         &mut self.data
     }
 
     /// Get the underlying data
-    pub fn into_inner(self) -> [u8; M] {
+    pub fn into_inner(self) -> [F; M] {
         self.data
     }
 
-    /// Add another symbol to this one (element-wise XOR for GF(256))
+    /// Add another symbol to this one (element-wise addition for field elements)
     pub fn add_assign(&mut self, other: &Self) {
         for (a, b) in self.data.iter_mut().zip(other.data.iter()) {
-            *a ^= *b;
+            *a += *b;
         }
     }
 
     /// Scale this symbol by a field element
-    pub fn scale<F>(&mut self, scalar: F)
-    where
-        F: BiniusField + From<u8> + Into<u8>,
-    {
+    pub fn scale(&mut self, scalar: F) {
         if scalar.is_zero() {
-            self.data = [0u8; M];
-        } else if scalar != F::ONE {
-            #[inline(always)]
-            fn scale_byte<F>(byte: &mut u8, scalar: F)
-            where
-                F: BiniusField + From<u8> + Into<u8>,
-            {
-                if *byte == 0 {
-                    return;
-                }
-                let field_byte = F::from(*byte);
-                let scaled = field_byte * scalar;
-                *byte = scaled.into();
+            for elem in &mut self.data {
+                *elem = F::ZERO;
             }
-
-            for byte in &mut self.data {
-                scale_byte(byte, scalar);
+        } else if scalar != F::ONE {
+            for elem in &mut self.data {
+                *elem *= scalar;
             }
         }
     }
 
     /// Create a copy of this symbol scaled by a field element
-    pub fn scaled<F>(&self, scalar: F) -> Self
-    where
-        F: BiniusField + From<u8> + Into<u8>,
-    {
+    pub fn scaled(&self, scalar: F) -> Self {
         let mut result = self.clone();
         result.scale(scalar);
         result
     }
 
     /// Get a mutable reference to the underlying data
-    pub fn data_mut(&mut self) -> &mut [u8; M] {
+    pub fn data_mut(&mut self) -> &mut [F; M] {
         &mut self.data
     }
 
     /// Convert from a slice of bytes (panics if slice is wrong size)
-    pub fn from_slice(slice: &[u8]) -> Self {
+    pub fn from_bytes(slice: &[u8]) -> Self
+    where
+        F: From<u8>,
+    {
         assert_eq!(slice.len(), M, "Slice length must match symbol size");
-        let mut data = [0u8; M];
-        data.copy_from_slice(slice);
+        let mut data = [F::ZERO; M];
+        for (i, &byte) in slice.iter().enumerate() {
+            data[i] = F::from(byte);
+        }
         Self { data }
     }
 
-    /// Create a symbol filled with a specific value
-    pub fn filled(value: u8) -> Self {
+    /// Create a symbol filled with a specific field element
+    pub fn filled(value: F) -> Self {
         Self { data: [value; M] }
     }
 }
 
-impl<const M: usize> Default for Symbol<M> {
+impl<F: BiniusField, const M: usize> Default for Symbol<F, M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const M: usize> Index<usize> for Symbol<M> {
-    type Output = u8;
+impl<F: BiniusField, const M: usize> Index<usize> for Symbol<F, M> {
+    type Output = F;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.data[index]
     }
 }
 
-impl<const M: usize> IndexMut<usize> for Symbol<M> {
+impl<F: BiniusField, const M: usize> IndexMut<usize> for Symbol<F, M> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.data[index]
     }
 }
 
-impl<const M: usize> From<[u8; M]> for Symbol<M> {
-    fn from(data: [u8; M]) -> Self {
+impl<F: BiniusField, const M: usize> From<[F; M]> for Symbol<F, M> {
+    fn from(data: [F; M]) -> Self {
         Self::from_data(data)
     }
 }
 
-impl<const M: usize> From<Symbol<M>> for [u8; M] {
-    fn from(symbol: Symbol<M>) -> Self {
+impl<F: BiniusField, const M: usize> From<Symbol<F, M>> for [F; M] {
+    fn from(symbol: Symbol<F, M>) -> Self {
         symbol.into_inner()
     }
 }
 
-impl<const M: usize> AsRef<[u8]> for Symbol<M> {
-    fn as_ref(&self) -> &[u8] {
+impl<F: BiniusField, const M: usize> AsRef<[F]> for Symbol<F, M> {
+    fn as_ref(&self) -> &[F] {
         &self.data
     }
 }
 
-impl<const M: usize> AsMut<[u8]> for Symbol<M> {
-    fn as_mut(&mut self) -> &mut [u8] {
+impl<F: BiniusField, const M: usize> AsMut<[F]> for Symbol<F, M> {
+    fn as_mut(&mut self) -> &mut [F] {
         &mut self.data
     }
 }
@@ -163,53 +151,96 @@ mod tests {
 
     #[test]
     fn test_symbol_creation() {
-        let symbol = Symbol::<10>::new();
-        assert_eq!(symbol.as_slice(), &[0u8; 10]);
+        let symbol = Symbol::<GF256, 10>::new();
+        assert_eq!(symbol.as_slice(), &[GF256::ZERO; 10]);
     }
 
     #[test]
     fn test_symbol_from_data() {
-        let data = [1, 2, 3, 4, 5];
-        let symbol = Symbol::<5>::from_data(data);
+        let data = [GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4), GF256::from(5)];
+        let symbol = Symbol::<GF256, 5>::from_data(data);
         assert_eq!(symbol.as_slice(), data.as_slice());
     }
 
     #[test]
     fn test_symbol_add_assign() {
-        let mut a = Symbol::<5>::from_data([1, 2, 3, 4, 5]);
-        let b = Symbol::<5>::from_data([5, 4, 3, 2, 1]);
+        let mut a = Symbol::<GF256, 5>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+            GF256::from(5),
+        ]);
+        let b = Symbol::<GF256, 5>::from_data([
+            GF256::from(5),
+            GF256::from(4),
+            GF256::from(3),
+            GF256::from(2),
+            GF256::from(1),
+        ]);
 
         a.add_assign(&b);
-        assert_eq!(a.as_slice(), &[4, 6, 0, 6, 4]);
+        let expected = [
+            GF256::from(4),
+            GF256::from(6),
+            GF256::from(0),
+            GF256::from(6),
+            GF256::from(4),
+        ];
+        assert_eq!(a.as_slice(), expected.as_slice());
     }
 
     #[test]
     fn test_symbol_scaling() {
-        let mut symbol = Symbol::<5>::from_data([1, 2, 3, 4, 5]);
+        let mut symbol = Symbol::<GF256, 5>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+            GF256::from(5),
+        ]);
         symbol.scale(GF256::from(2));
 
-        assert_eq!(symbol.as_slice()[0], 2);
-        assert_eq!(symbol.as_slice()[1], 4);
+        assert_eq!(symbol[0], GF256::from(2));
+        assert_eq!(symbol[1], GF256::from(4));
     }
 
     #[test]
     fn test_symbol_scaling_gf256() {
-        let mut symbol = Symbol::<3>::from_data([0x02, 0x03, 0x04]);
+        let mut symbol = Symbol::<GF256, 3>::from_data([
+            GF256::from(0x02),
+            GF256::from(0x03),
+            GF256::from(0x04),
+        ]);
         let scalar = GF256::from(0x03);
         symbol.scale(scalar);
 
-        let expected_0: u8 = (GF256::from(0x02) * scalar).into();
-        let expected_1: u8 = (GF256::from(0x03) * scalar).into();
-        let expected_2: u8 = (GF256::from(0x04) * scalar).into();
+        let expected_0 = GF256::from(0x02) * scalar;
+        let expected_1 = GF256::from(0x03) * scalar;
+        let expected_2 = GF256::from(0x04) * scalar;
 
-        assert_eq!(symbol.as_slice()[0], expected_0);
-        assert_eq!(symbol.as_slice()[1], expected_1);
-        assert_eq!(symbol.as_slice()[2], expected_2);
+        assert_eq!(symbol[0], expected_0);
+        assert_eq!(symbol[1], expected_1);
+        assert_eq!(symbol[2], expected_2);
     }
 
     #[test]
     fn test_symbol_len_const() {
-        assert_eq!(Symbol::<16>::len(), 16);
-        assert_eq!(Symbol::<1024>::len(), 1024);
+        assert_eq!(Symbol::<GF256, 16>::len(), 16);
+        assert_eq!(Symbol::<GF256, 1024>::len(), 1024);
     }
-}
+
+    #[test]
+    fn test_symbol_from_bytes() {
+        let bytes = [1, 2, 3, 4, 5];
+        let symbol = Symbol::<GF256, 5>::from_bytes(&bytes);
+        let expected = [
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+            GF256::from(5),
+        ];
+        assert_eq!(symbol.as_slice(), expected.as_slice());
+    }
+}    
