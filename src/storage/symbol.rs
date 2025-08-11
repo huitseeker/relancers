@@ -19,11 +19,6 @@ impl<F: BiniusField, const M: usize> Symbol<F, M> {
         Self { data }
     }
 
-    /// Create a zero symbol
-    pub fn zero() -> Self {
-        Self::new()
-    }
-
     /// Get the size of the symbol in bytes (const)
     pub const fn len() -> usize {
         M
@@ -157,7 +152,13 @@ mod tests {
 
     #[test]
     fn test_symbol_from_data() {
-        let data = [GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4), GF256::from(5)];
+        let data = [
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+            GF256::from(5),
+        ];
         let symbol = Symbol::<GF256, 5>::from_data(data);
         assert_eq!(symbol.as_slice(), data.as_slice());
     }
@@ -243,4 +244,4 @@ mod tests {
         ];
         assert_eq!(symbol.as_slice(), expected.as_slice());
     }
-}    
+}

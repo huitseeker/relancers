@@ -12,7 +12,6 @@ use once_cell::sync::OnceCell;
 use binius_field::packed::PackedField;
 use binius_field::util::inner_product_par;
 
-
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
 pub struct RlnEncoder<F: BiniusField, const M: usize, const N: usize>
 where
@@ -128,9 +127,9 @@ where
             }
 
             // Convert to OptimalPacked<F> for efficient SIMD operations
-            let packed_values =
-                coord_values.chunks(OptimalPacked::<F>::WIDTH).map(|chunk|
-                    OptimalPacked::<F>::from_scalars(chunk.iter().map(|byte| F::from(*byte))));
+            let packed_values = coord_values.chunks(OptimalPacked::<F>::WIDTH).map(|chunk| {
+                OptimalPacked::<F>::from_scalars(chunk.iter().map(|byte| F::from(*byte)))
+            });
             // Sanity-check the packing
             debug_assert_eq!(packed_values.len(), Self::packed_stride());
             self.coordinate_data.extend(packed_values);
@@ -237,10 +236,7 @@ where
     }
 
     /// Configure the encoder with optional sparsity
-    pub fn configure_with_sparsity(
-        &mut self,
-        sparsity: Option<f64>,
-    ) -> Result<(), CodingError> {
+    pub fn configure_with_sparsity(&mut self, sparsity: Option<f64>) -> Result<(), CodingError> {
         if N == 0 {
             return Err(CodingError::InvalidParameters);
         }
@@ -256,19 +252,26 @@ where
 
         Ok(())
     }
-
 }
 
 type OptimalPacked<F> = PackedType<OptimalUnderlier, F>;
 
-impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N> where OptimalUnderlier: PackScalar<F> {
-
+impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N>
+where
+    OptimalUnderlier: PackScalar<F>,
+{
     /// Optimized encoding using PackedField and inner_product_par for matrix multiplication
     /// This implements the matrix-vector product where symbols are treated as an M × N matrix
     /// and we compute the inner product of each row with the coefficient vector
-    fn encode_symbol_packed_field_optimized(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
+    fn encode_symbol_packed_field_optimized(
+        &self,
+        coefficients: &[F],
+    ) -> Result<Symbol<F, M>, CodingError> {
         // For each coordinate position, compute inner product with coefficients
-        let packed_coeffs: Vec<_> = coefficients.chunks(OptimalPacked::<F>::WIDTH).map(|chunk| OptimalPacked::<F>::from_scalars(chunk.iter().cloned())).collect();
+        let packed_coeffs: Vec<_> = coefficients
+            .chunks(OptimalPacked::<F>::WIDTH)
+            .map(|chunk| OptimalPacked::<F>::from_scalars(chunk.iter().cloned()))
+            .collect();
 
         // Sanity-check the packing
         debug_assert_eq!(packed_coeffs.len(), Self::packed_stride());
@@ -284,12 +287,12 @@ impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N> where O
             .collect();
 
         // Convert result to array and create symbol
-        let result_array: [F; M] = result.try_into().map_err(|_| CodingError::InvalidDataSize)?;
+        let result_array: [F; M] = result
+            .try_into()
+            .map_err(|_| CodingError::InvalidDataSize)?;
         Ok(Symbol::from_data(result_array))
     }
-
 }
-
 
 impl<F: BiniusField, const M: usize, const N: usize> Default for RlnEncoder<F, M, N>
 where
@@ -373,7 +376,6 @@ pub struct SparsityStats {
     pub sparsity_ratio: f64,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,7 +418,12 @@ mod tests {
         let encoded = encoder.encode_symbol(&coeffs).unwrap();
 
         // With proper GF(256) multiplication using AESTowerField8b
-        let expected = Symbol::from_data([GF256::from(11), GF256::from(14), GF256::from(13), GF256::from(20)]); // Actual result with AESTowerField8b
+        let expected = Symbol::from_data([
+            GF256::from(11),
+            GF256::from(14),
+            GF256::from(13),
+            GF256::from(20),
+        ]); // Actual result with AESTowerField8b
         assert_eq!(encoded, expected);
     }
 
@@ -787,12 +794,8 @@ mod tests {
         let mut encoder1 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
         let mut encoder2 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
 
-        encoder1
-            .configure_with_sparsity(Some(0.3))
-            .unwrap();
-        encoder2
-            .configure_with_sparsity(Some(0.3))
-            .unwrap();
+        encoder1.configure_with_sparsity(Some(0.3)).unwrap();
+        encoder2.configure_with_sparsity(Some(0.3)).unwrap();
 
         encoder1.set_data(&data).unwrap();
         encoder2.set_data(&data).unwrap();
@@ -1011,8 +1014,8 @@ mod tests {
 
     #[test]
     fn test_packed_field_api() {
-        use binius_field::{packed::PackedField, PackedAESBinaryField8x8b};
         use binius_field::util::inner_product_par;
+        use binius_field::{packed::PackedField, PackedAESBinaryField8x8b};
 
         // Test basic PackedField usage
         let scalar = GF256::from(42u8);
@@ -1023,8 +1026,18 @@ mod tests {
         println!("Packed field: {:?}", packed);
 
         // Test inner_product_par with packed vectors - need to pack the scalars first
-        let coeffs_scalars = [GF256::from(1u8), GF256::from(2u8), GF256::from(3u8), GF256::from(4u8)];
-        let values_scalars = [GF256::from(5u8), GF256::from(6u8), GF256::from(7u8), GF256::from(8u8)];
+        let coeffs_scalars = [
+            GF256::from(1u8),
+            GF256::from(2u8),
+            GF256::from(3u8),
+            GF256::from(4u8),
+        ];
+        let values_scalars = [
+            GF256::from(5u8),
+            GF256::from(6u8),
+            GF256::from(7u8),
+            GF256::from(8u8),
+        ];
 
         // Convert to packed fields
         let coeffs_packed = PackedAESBinaryField8x8b::from_scalars(coeffs_scalars);
@@ -1033,7 +1046,10 @@ mod tests {
         // Use inner_product_par with packed fields
         let coeffs_slice = &[coeffs_packed];
         let values_slice = &[values_packed];
-        let result = inner_product_par::<GF256, PackedAESBinaryField8x8b, PackedAESBinaryField8x8b>(coeffs_slice, values_slice);
+        let result = inner_product_par::<GF256, PackedAESBinaryField8x8b, PackedAESBinaryField8x8b>(
+            coeffs_slice,
+            values_slice,
+        );
         println!("Inner product result: {:?}", result);
 
         // Test manual computation for comparison
@@ -1072,7 +1088,11 @@ mod tests {
 
         // Check all coordinates
         for i in 0..16 {
-            assert_eq!(result[i], expected_coord, "Coordinate {} should be {:?}", i, expected_coord);
+            assert_eq!(
+                result[i], expected_coord,
+                "Coordinate {} should be {:?}",
+                i, expected_coord
+            );
         }
     }
 }

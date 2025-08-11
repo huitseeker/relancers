@@ -143,21 +143,3 @@ pub trait RecodingDecoder<F: BiniusField, const M: usize>: Decoder<F, M> {
     /// Get the number of symbols needed for recoding (typically same as decoding)
     fn symbols_needed_for_recode(&self) -> usize;
 }
-
-/// Trait for streaming network encoders
-pub trait StreamingEncoder<F: BiniusField, const M: usize>: Encoder<F, M> {
-    /// Generate a specific encoded symbol by index (for systematic codes)
-    fn encode_symbol_at(
-        &mut self,
-        index: usize,
-    ) -> Result<crate::storage::Symbol<F, M>, CodingError>;
-
-    /// Get the current encoding position (for carousel/streaming)
-    fn current_position(&self) -> usize;
-
-    /// Reset encoding position to start
-    fn reset_position(&mut self);
-
-    /// Check if all source symbols have been transmitted
-    fn is_complete(&self) -> bool;
-}

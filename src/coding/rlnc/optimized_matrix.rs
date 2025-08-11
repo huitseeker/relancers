@@ -22,6 +22,7 @@ pub struct OptimizedMatrix<F: BiniusField> {
     row_permutation: Vec<usize>,
     /// Inverse permutation (maps physical to logical rows)
     inv_permutation: Vec<usize>,
+    #[cfg(test)]
     /// Scratch space for temporary row operations
     scratch_row: Vec<F>,
     _marker: PhantomData<F>,
@@ -38,18 +39,21 @@ impl<F: BiniusField> OptimizedMatrix<F> {
             rank: 0,
             row_permutation: Vec::new(),
             inv_permutation: Vec::new(),
+            #[cfg(test)]
             scratch_row: vec![F::ZERO; cols],
             _marker: PhantomData,
         }
     }
 
     /// Get the number of rows in the matrix
+    #[cfg(test)]
     #[inline]
     pub fn rows(&self) -> usize {
         self.rows
     }
 
     /// Get the number of columns in the matrix
+    #[cfg(test)]
     #[inline]
     pub fn cols(&self) -> usize {
         self.cols
@@ -231,23 +235,6 @@ impl<F: BiniusField> OptimizedMatrix<F> {
         &self.data[row * self.cols..(row + 1) * self.cols]
     }
 
-    /// Perform full Gaussian elimination to solve the system
-    /// Returns the transformation matrix for recovering original symbols
-    pub fn solve(&self) -> Result<Vec<Vec<F>>, CodingError> {
-        if !self.is_full_rank() {
-            return Err(CodingError::InsufficientData);
-        }
-
-        // For a full-rank system, we need to return the identity matrix
-        // since the RREF process has already given us the solution directly
-        let mut identity = vec![vec![F::ZERO; self.cols]; self.cols];
-        for i in 0..self.cols {
-            identity[i][i] = F::ONE;
-        }
-
-        Ok(identity)
-    }
-
     /// Clear the matrix and reset to initial state
     pub fn clear(&mut self) {
         self.data.clear();
@@ -259,6 +246,7 @@ impl<F: BiniusField> OptimizedMatrix<F> {
     }
 
     /// Get memory usage statistics
+    #[cfg(test)]
     pub fn memory_usage(&self) -> usize {
         self.data.len() * std::mem::size_of::<F>()
             + self.pivots.len() * std::mem::size_of::<Option<usize>>()

@@ -98,7 +98,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                 self.decoded[col] = true;
 
                 // Update partially decoded symbols based on RREF
-                let mut new_symbol = Symbol::<F, M>::zero();
+                let mut new_symbol = Symbol::<F, M>::new();
 
                 // Build the solution for this column
                 let row_coefficients = self.matrix.get_row(pivot_row);
@@ -352,7 +352,7 @@ where
             return Err(CodingError::InsufficientData);
         }
 
-        let mut recoded_symbol = Symbol::<F, M>::zero();
+        let mut recoded_symbol = Symbol::<F, M>::new();
 
         // Linear combination of received symbols using recode coefficients
         for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {
@@ -400,7 +400,12 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
+        let symbol = Symbol::<GF256, 4>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+        ]);
 
         assert!(decoder.add_symbol(&coeffs, &symbol).is_ok());
         assert_eq!(decoder.symbols_received(), 1);
@@ -412,7 +417,12 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
+        let symbol = Symbol::<GF256, 4>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+        ]);
 
         decoder.add_symbol(&coeffs, &symbol).unwrap();
         assert!(!decoder.can_decode());
@@ -468,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn test_streaming_decoder_incremental() {
+    fn test_decoder_streaming_incremental() {
         let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
@@ -510,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn test_streaming_decoder_partial_progress() {
+    fn test_decoder_streaming_partial_progress() {
         let mut encoder = RlnEncoder::<GF256, 2, 4>::with_seed([99; 32]);
         let mut decoder = RlnDecoder::<GF256, 2>::new();
 
@@ -613,14 +623,30 @@ mod tests {
         // First coefficient should increase rank
         assert!(decoder.check_rank_increase(&coeffs1));
         decoder
-            .add_symbol(&coeffs1, &Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]))
+            .add_symbol(
+                &coeffs1,
+                &Symbol::<GF256, 4>::from_data([
+                    GF256::from(1),
+                    GF256::from(2),
+                    GF256::from(3),
+                    GF256::from(4),
+                ]),
+            )
             .unwrap();
         assert_eq!(decoder.current_rank(), 1);
 
         // Second coefficient should increase rank
         assert!(decoder.check_rank_increase(&coeffs2));
         decoder
-            .add_symbol(&coeffs2, &Symbol::<GF256, 4>::from_data([GF256::from(5), GF256::from(6), GF256::from(7), GF256::from(8)]))
+            .add_symbol(
+                &coeffs2,
+                &Symbol::<GF256, 4>::from_data([
+                    GF256::from(5),
+                    GF256::from(6),
+                    GF256::from(7),
+                    GF256::from(8),
+                ]),
+            )
             .unwrap();
         assert_eq!(decoder.current_rank(), 2);
 
@@ -660,7 +686,12 @@ mod tests {
     fn test_decoder_not_configured() {
         let mut decoder = RlnDecoder::<GF256, 4>::new();
         let coeffs = vec![GF256::from(1), GF256::from(0)];
-        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
+        let symbol = Symbol::<GF256, 4>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+        ]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -670,7 +701,12 @@ mod tests {
         decoder.configure(2).unwrap();
 
         let coeffs = vec![GF256::from(1)]; // Wrong length
-        let symbol = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]);
+        let symbol = Symbol::<GF256, 4>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+        ]);
         assert!(decoder.add_symbol(&coeffs, &symbol).is_err());
     }
 
@@ -716,7 +752,7 @@ mod tests {
         // Test with a new decoder for different data
         let mut decoder2 = RlnDecoder::<GF256, 4>::new();
         decoder2.configure(3).unwrap();
-        
+
         let data2 = vec![13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
         encoder.set_data(&data2).unwrap();
 
@@ -1052,8 +1088,18 @@ mod tests {
         let _symbol2 = [5, 6, 7, 8]; // Second original symbol
 
         // Create encoded symbols: c1*symbol1 + c2*symbol2
-        let encoded1 = Symbol::<GF256, 4>::from_data([GF256::from(1), GF256::from(2), GF256::from(3), GF256::from(4)]); // 1*symbol1 + 0*symbol2
-        let encoded2 = Symbol::<GF256, 4>::from_data([GF256::from(5), GF256::from(6), GF256::from(7), GF256::from(8)]); // 0*symbol1 + 1*symbol2
+        let encoded1 = Symbol::<GF256, 4>::from_data([
+            GF256::from(1),
+            GF256::from(2),
+            GF256::from(3),
+            GF256::from(4),
+        ]); // 1*symbol1 + 0*symbol2
+        let encoded2 = Symbol::<GF256, 4>::from_data([
+            GF256::from(5),
+            GF256::from(6),
+            GF256::from(7),
+            GF256::from(8),
+        ]); // 0*symbol1 + 1*symbol2
 
         // Relay receives symbols
         relay_decoder.add_symbol(&coeffs1, &encoded1).unwrap();

@@ -5,7 +5,6 @@ use crate::storage::Symbol;
 use binius_field::Field as BiniusField;
 // Note: Using our own Reed-Solomon implementation as Binius RS functions aren't available directly
 // The implementation uses systematic Vandermonde matrices for compatibility
-use std::marker::PhantomData;
 
 /// Reed-Solomon encoder using Binius implementation
 pub struct RsEncoder<F: BiniusField, const M: usize> {
@@ -15,7 +14,6 @@ pub struct RsEncoder<F: BiniusField, const M: usize> {
     data: Vec<Symbol<F, M>>,
     /// Total number of symbols (n)
     total_symbols: usize,
-    _marker: PhantomData<F>,
 }
 
 impl<F: BiniusField, const M: usize> RsEncoder<F, M> {
@@ -25,7 +23,6 @@ impl<F: BiniusField, const M: usize> RsEncoder<F, M> {
             symbols: 0,
             data: Vec::new(),
             total_symbols: 0,
-            _marker: PhantomData,
         }
     }
 
@@ -142,7 +139,7 @@ where
         for byte_idx in 0..M {
             result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
         }
-        
+
         // Convert bytes back to field elements for Symbol
         let mut field_result = [F::ZERO; M];
         for (i, &byte) in result.iter().enumerate() {
