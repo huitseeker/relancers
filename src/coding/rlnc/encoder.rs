@@ -267,12 +267,6 @@ impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N> where O
     /// This implements the matrix-vector product where symbols are treated as an M × N matrix
     /// and we compute the inner product of each row with the coefficient vector
     fn encode_symbol_packed_field_optimized(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
-        // Use PackedField-based parallel implementation
-        self.encode_symbol_parallel_packed(coefficients)
-    }
-
-    /// PackedField-based parallel implementation using inner_product_par
-    fn encode_symbol_parallel_packed(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
         // For each coordinate position, compute inner product with coefficients
         let packed_coeffs: Vec<_> = coefficients.chunks(OptimalPacked::<F>::WIDTH).map(|chunk| OptimalPacked::<F>::from_scalars(chunk.iter().cloned())).collect();
 
