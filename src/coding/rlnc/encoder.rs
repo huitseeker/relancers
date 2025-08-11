@@ -12,13 +12,12 @@ use once_cell::sync::OnceCell;
 use binius_field::packed::PackedField;
 use binius_field::util::inner_product_par;
 
+
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
-pub struct RlnEncoder<F: BiniusField, const M: usize> 
+pub struct RlnEncoder<F: BiniusField, const M: usize, const N: usize>
 where
     OptimalUnderlier: PackScalar<F>,
 {
-    /// Number of source symbols
-    symbols: usize,
     /// Data stored in coordinate-major format using OptimalPacked<F>
     /// Each element contains one coordinate across all symbols for efficient SIMD operations
     coordinate_data: Vec<OptimalPacked<F>>,
@@ -30,14 +29,13 @@ where
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
 }
 
-impl<F: BiniusField, const M: usize> RlnEncoder<F, M> 
+impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N>
 where
     OptimalUnderlier: PackScalar<F>,
 {
     /// Create a new RLNC encoder
     pub fn new() -> Self {
         Self {
-            symbols: 0,
             coordinate_data: Vec::new(),
             current_seed: [0u8; 32],
             sparsity_config: None,
@@ -61,14 +59,14 @@ where
     ///
     /// // Deterministic encoding with non-zero seed
     /// let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
-    /// let mut encoder = RlnEncoder::<GF256, 2>::with_seed([42; 32]);
+    /// let mut encoder = RlnEncoder::<GF256, 2, 2>::with_seed([42; 32]);
     /// encoder.configure(4).unwrap();
     /// encoder.set_data(&data).unwrap();
     ///
     /// // Will produce identical coefficients across runs
     /// let (coeffs1, symbol1) = encoder.encode_packet().unwrap();
     ///
-    /// let mut encoder2 = RlnEncoder::<GF256, 2>::with_seed([42; 32]);
+    /// let mut encoder2 = RlnEncoder::<GF256, 2, 2>::with_seed([42; 32]);
     /// encoder2.configure(4).unwrap();
     /// encoder2.set_data(&data).unwrap();
     /// let (coeffs2, symbol2) = encoder2.encode_packet().unwrap();
@@ -78,7 +76,6 @@ where
     /// ```
     pub fn with_seed(seed: [u8; 32]) -> Self {
         Self {
-            symbols: 0,
             coordinate_data: Vec::new(),
             current_seed: seed,
             sparsity_config: None,
@@ -87,8 +84,8 @@ where
     }
 
     /// Get the total size of the data in bytes
-    pub fn data_size(&self) -> usize {
-        self.symbols * M
+    pub const fn data_size() -> usize {
+        N * M
     }
 
     /// Convert data directly to coordinate-major format using OptimalPacked<F>
@@ -96,7 +93,7 @@ where
     where
         F: From<u8>,
     {
-        if data.len() != self.data_size() {
+        if data.len() != Self::data_size() {
             return Err(CodingError::InvalidDataSize);
         }
 
@@ -105,56 +102,35 @@ where
 
         // For each coordinate position (0 to M-1), collect values from all symbols
         for coord_idx in 0..M {
-            let mut coord_values = Vec::with_capacity(self.symbols);
-            
+            // Row vectors
+            let mut coord_values = Vec::with_capacity(N);
+
             // Extract this coordinate from all symbols
-            for symbol_idx in 0..self.symbols {
+            for symbol_idx in 0..N {
                 let byte_offset = symbol_idx * M + coord_idx;
                 coord_values.push(F::from(data[byte_offset]));
             }
-            
+
             // Convert to OptimalPacked<F> for efficient SIMD operations
-            let packed_values = self.create_packed_from_scalars(&coord_values);
+            let packed_values =
+                // Row vectors can span multiple packed elements - for now, handle the first one
+                // This will be extended when we need to handle larger numbers of symbols
+                OptimalPacked::<F>::from_scalars(coord_values);
             self.coordinate_data.push(packed_values);
         }
 
         Ok(())
     }
 
-    /// Create OptimalPacked<F> from scalar values, handling remainder elements
-    fn create_packed_from_scalars(&self, scalars: &[F]) -> OptimalPacked<F> {
-        let width = OptimalPacked::<F>::WIDTH;
-        let packed_len = (scalars.len() + width - 1) / width;
-        
-        if packed_len == 1 {
-            // Single packed element
-            let mut padded_scalars = vec![F::ZERO; width];
-            for (i, &scalar) in scalars.iter().enumerate() {
-                if i < width {
-                    padded_scalars[i] = scalar;
-                }
-            }
-            OptimalPacked::<F>::from_scalars(padded_scalars)
-        } else {
-            // Multiple packed elements - for now, handle the first one
-            // This will be extended when we need to handle larger numbers of symbols
-            let mut first_packed_scalars = vec![F::ZERO; width];
-            for (i, &scalar) in scalars.iter().enumerate().take(width) {
-                first_packed_scalars[i] = scalar;
-            }
-            OptimalPacked::<F>::from_scalars(first_packed_scalars)
-        }
-    }
-
     /// Extract scalar values from OptimalPacked<F>
     fn extract_scalars_from_packed(&self, packed: &OptimalPacked<F>) -> Vec<F> {
         let width = OptimalPacked::<F>::WIDTH;
-        let mut scalars = Vec::with_capacity(self.symbols.min(width));
-        
-        for i in 0..self.symbols.min(width) {
+        let mut scalars = Vec::with_capacity(N.min(width));
+
+        for i in 0..N.min(width) {
             scalars.push(packed.get(i));
         }
-        
+
         scalars
     }
 
@@ -188,9 +164,8 @@ where
     where
         F: From<u8> + Into<u8>,
     {
-        let symbols = self.symbols;
         let generator = self.get_coeff_generator();
-        generator.generate_coefficients(symbols)
+        generator.generate_coefficients(N)
     }
 
     /// Get sparsity configuration
@@ -256,17 +231,15 @@ where
         self.current_seed
     }
 
-    /// Configure the encoder with number of symbols and optional sparsity
+    /// Configure the encoder with optional sparsity
     pub fn configure_with_sparsity(
         &mut self,
-        symbols: usize,
         sparsity: Option<f64>,
     ) -> Result<(), CodingError> {
-        if symbols == 0 {
+        if N == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
-        self.symbols = symbols;
         self.coordinate_data.clear();
         self.coordinate_data.reserve(M);
 
@@ -283,14 +256,14 @@ where
 
 type OptimalPacked<F> = PackedType<OptimalUnderlier, F>;
 
-impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: PackScalar<F> {
+impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N> where OptimalUnderlier: PackScalar<F> {
 
     /// Optimized encoding using PackedField and inner_product_par for matrix multiplication
-    /// This implements the matrix-vector product where symbols are treated as an M × symbols matrix
+    /// This implements the matrix-vector product where symbols are treated as an M × N matrix
     /// and we compute the inner product of each row with the coefficient vector
     fn encode_symbol_packed_field_optimized(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
         // For small inputs, use scalar implementation for better performance
-        if M < 8 || self.symbols < 8 {
+        if M < 8 || N < 8 {
             return self.encode_symbol_scalar(coefficients);
         }
 
@@ -305,10 +278,10 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
         for coord_idx in 0..M {
             let mut coord_sum = F::ZERO;
             let packed_coord = &self.coordinate_data[coord_idx];
-            
+
             // Extract scalar values from packed data
             let scalars = self.extract_scalars_from_packed(packed_coord);
-            
+
             for (coeff, &field_element) in coefficients.iter().zip(scalars.iter()) {
                 if !coeff.is_zero() {
                     coord_sum += *coeff * field_element;
@@ -323,7 +296,6 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
     /// PackedField-based parallel implementation using inner_product_par
     fn encode_symbol_parallel_packed(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
         // For each coordinate position, compute inner product with coefficients
-        // This is where we would use inner_product_par with actual PackedField types
         let result: Vec<F> = (0..M)
             .into_par_iter()
             .map(|coord_idx| {
@@ -435,7 +407,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
 }
 
 
-impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> 
+impl<F: BiniusField, const M: usize, const N: usize> Default for RlnEncoder<F, M, N>
 where
     OptimalUnderlier: PackScalar<F>,
 {
@@ -444,17 +416,16 @@ where
     }
 }
 
-impl<F: BiniusField, const M: usize> Encoder<F, M> for RlnEncoder<F, M>
+impl<F: BiniusField, const M: usize, const N: usize> Encoder<F, M> for RlnEncoder<F, M, N>
 where
     F: From<u8> + Into<u8>,
     OptimalUnderlier: PackScalar<F>,
 {
-    fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
-        if symbols == 0 {
+    fn configure(&mut self, _symbols: usize) -> Result<(), CodingError> {
+        if N == 0 {
             return Err(CodingError::InvalidParameters);
         }
 
-        self.symbols = symbols;
         self.coordinate_data.clear();
         self.coordinate_data.reserve(M);
 
@@ -465,7 +436,7 @@ where
     where
         F: From<u8>,
     {
-        if self.symbols == 0 || M == 0 {
+        if N == 0 || M == 0 {
             return Err(CodingError::NotConfigured);
         }
 
@@ -476,7 +447,7 @@ where
         &mut self,
         coefficients: &[F],
     ) -> Result<crate::storage::Symbol<F, M>, CodingError> {
-        if coefficients.len() != self.symbols {
+        if coefficients.len() != N {
             return Err(CodingError::InvalidCoefficients);
         }
 
@@ -485,12 +456,12 @@ where
         }
 
         // Use PackedField-based matrix-vector multiplication
-        // Treat symbols as M x symbols matrix, compute inner product with coefficients
+        // Treat symbols as M x N matrix, compute inner product with coefficients
         self.encode_symbol_packed_field_optimized(coefficients)
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, M>), CodingError> {
-        if self.symbols == 0 {
+        if N == 0 {
             return Err(CodingError::NotConfigured);
         }
 
@@ -505,7 +476,7 @@ where
     }
 
     fn symbols(&self) -> usize {
-        self.symbols
+        N
     }
 }
 
@@ -527,21 +498,21 @@ mod tests {
 
     #[test]
     fn test_encoder_configuration() {
-        let mut encoder = RlnEncoder::<GF256, 16>::new();
-        assert!(encoder.configure(4).is_ok());
-        assert_eq!(encoder.symbols, 4);
+        let mut encoder = RlnEncoder::<GF256, 16, 4>::new();
+        assert!(encoder.configure(0).is_ok());
+        assert_eq!(encoder.symbols(), 4);
     }
 
     #[test]
     fn test_encoder_invalid_configuration() {
-        let mut encoder = RlnEncoder::<GF256, 16>::new();
+        let mut encoder = RlnEncoder::<GF256, 16, 0>::new();
         assert!(encoder.configure(0).is_err());
     }
 
     #[test]
     fn test_encoder_set_data() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(4).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 4>::new();
+        encoder.configure(0).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         assert!(encoder.set_data(&data).is_ok());
@@ -550,8 +521,8 @@ mod tests {
 
     #[test]
     fn test_encode_symbol() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([99; 32]);
-        encoder.configure(2).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([99; 32]);
+        encoder.configure(0).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
@@ -567,8 +538,8 @@ mod tests {
 
     #[test]
     fn test_encode_packet() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([0; 32]);
-        encoder.configure(2).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([0; 32]);
+        encoder.configure(0).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
@@ -580,44 +551,44 @@ mod tests {
 
     #[test]
     fn test_encoder_empty_data() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        let mut encoder = RlnEncoder::<GF256, 4, 0>::new();
         encoder.configure(0).unwrap_err();
     }
 
     #[test]
     fn test_encoder_large_symbols() {
-        let mut encoder = RlnEncoder::<GF256, 1024>::new();
-        assert!(encoder.configure(1000).is_ok());
+        let mut encoder = RlnEncoder::<GF256, 1024, 1000>::new();
+        assert!(encoder.configure(0).is_ok());
         assert_eq!(encoder.symbols(), 1000);
     }
 
     #[test]
     fn test_encoder_not_configured() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        let mut encoder = RlnEncoder::<GF256, 4, 0>::new();
         let data = vec![1, 2, 3, 4];
         assert!(encoder.set_data(&data).is_err());
     }
 
     #[test]
     fn test_encoder_wrong_data_size() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(3).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::new();
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3]; // Wrong size (should be 12 bytes)
         assert!(encoder.set_data(&data).is_err());
     }
 
     #[test]
     fn test_encode_symbol_no_data() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(2).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::new();
+        encoder.configure(0).unwrap();
         let coeffs = vec![GF256::from(1), GF256::from(1)];
         assert!(encoder.encode_symbol(&coeffs).is_err());
     }
 
     #[test]
     fn test_encode_symbol_wrong_coefficients_length() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(2).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::new();
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
 
@@ -627,18 +598,17 @@ mod tests {
 
     #[test]
     fn test_encoder_reuse() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::new();
 
         // First use
-        encoder.configure(2).unwrap();
-        let data1 = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        encoder.configure(0).unwrap();
+        let data1 = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         encoder.set_data(&data1).unwrap();
         let (_, symbol1) = encoder.encode_packet().unwrap();
 
-        // Reconfigure and reuse
-        // only multiples of original size
-        encoder.configure(3).unwrap();
-        let data2 = vec![9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+        // Clear data and reuse
+        encoder.coordinate_data.clear();
+        let data2 = vec![13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
         encoder.set_data(&data2).unwrap();
         let (_, symbol2) = encoder.encode_packet().unwrap();
 
@@ -647,11 +617,11 @@ mod tests {
 
     #[test]
     fn test_encoder_deterministic_with_seed() {
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
 
-        encoder1.configure(2).unwrap();
-        encoder2.configure(2).unwrap();
+        encoder1.configure(0).unwrap();
+        encoder2.configure(0).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder1.set_data(&data).unwrap();
@@ -666,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_encoder_set_seed() {
-        let mut encoder = RlnEncoder::<GF256, 16>::new();
+        let mut encoder = RlnEncoder::<GF256, 16, 8>::new();
         let seed = [123; 32];
         encoder.set_seed(seed);
         assert_eq!(encoder.current_seed(), seed);
@@ -674,9 +644,9 @@ mod tests {
 
     #[test]
     fn test_encoder_sequential_packets_deterministic() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
 
-        encoder.configure(2).unwrap();
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
 
@@ -694,11 +664,11 @@ mod tests {
 
     #[test]
     fn test_encoder_different_seeds_produce_different_outputs() {
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed([1; 32]);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([2; 32]);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 2>::with_seed([1; 32]);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 2>::with_seed([2; 32]);
 
-        encoder1.configure(2).unwrap();
-        encoder2.configure(2).unwrap();
+        encoder1.configure(0).unwrap();
+        encoder2.configure(0).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder1.set_data(&data).unwrap();
@@ -713,19 +683,18 @@ mod tests {
 
     #[test]
     fn test_encoder_round_trip_with_seed() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
 
-        let symbols = 3;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols).unwrap();
-        decoder.configure(symbols).unwrap();
+        encoder.configure(0).unwrap();
+        decoder.configure(3).unwrap();
 
         encoder.set_data(&data).unwrap();
 
         // Generate and send enough packets for decoding
-        for _ in 0..symbols {
+        for _ in 0..3 {
             let (coeffs, symbol) = encoder.encode_packet().unwrap();
             decoder.add_symbol(&coeffs, &symbol).unwrap();
         }
@@ -737,7 +706,7 @@ mod tests {
 
     #[test]
     fn test_encoder_set_seed_after_configuration() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::new();
         encoder.configure(2).unwrap();
 
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
@@ -753,8 +722,8 @@ mod tests {
         let (coeffs_after2, _) = encoder.encode_packet().unwrap();
 
         // After setting seed, should be deterministic
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
-        encoder2.configure(2).unwrap();
+        let mut encoder2 = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
+        encoder2.configure(0).unwrap();
         encoder2.set_data(&data).unwrap();
 
         let (coeffs_check1, _) = encoder2.encode_packet().unwrap();
@@ -766,8 +735,8 @@ mod tests {
 
     #[test]
     fn test_encoder_seed_with_sparsity() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
-        encoder.configure(5).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 5>::with_seed([42; 32]);
+        encoder.configure(0).unwrap();
         let data = vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         ];
@@ -792,8 +761,8 @@ mod tests {
 
     #[test]
     fn test_encoder_reset_seed() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
-        encoder.configure(2).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         encoder.set_data(&data).unwrap();
 
@@ -821,11 +790,11 @@ mod tests {
         let sparsity = Some(0.7);
 
         // Test 1: Same configuration should produce identical encoders
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
 
-        encoder1.configure_with_sparsity(symbols, sparsity).unwrap();
-        encoder2.configure_with_sparsity(symbols, sparsity).unwrap();
+        encoder1.configure_with_sparsity(sparsity).unwrap();
+        encoder2.configure_with_sparsity(sparsity).unwrap();
 
         encoder1.set_data(&data).unwrap();
         encoder2.set_data(&data).unwrap();
@@ -846,8 +815,8 @@ mod tests {
         }
 
         // Test 2: set_seed method determinism (merged from deleted test)
-        let mut encoder3 = RlnEncoder::<GF256, 4>::new();
-        let mut encoder4 = RlnEncoder::<GF256, 4>::new();
+        let mut encoder3 = RlnEncoder::<GF256, 4, 4>::new();
+        let mut encoder4 = RlnEncoder::<GF256, 4, 4>::new();
 
         encoder3.configure(symbols).unwrap();
         encoder4.configure(symbols).unwrap();
@@ -874,17 +843,17 @@ mod tests {
     #[test]
     fn test_determinism_with_sparse_configuration() {
         let seed = [99; 32];
-        let symbols = 5;
+        let _symbols = 5;
         let data = vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         ];
 
         // Test determinism with sparse configuration
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 5>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 5>::with_seed(seed);
 
-        encoder1.configure(symbols).unwrap();
-        encoder2.configure(symbols).unwrap();
+        encoder1.configure(0).unwrap();
+        encoder2.configure(0).unwrap();
 
         encoder1.set_sparsity(0.4);
         encoder2.set_sparsity(0.4);
@@ -902,14 +871,14 @@ mod tests {
     #[test]
     fn test_determinism_with_multiple_sequential_packets() {
         let seed = [77; 32];
-        let symbols = 3;
+        let _symbols = 3;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 3>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 3>::with_seed(seed);
 
-        encoder1.configure(symbols).unwrap();
-        encoder2.configure(symbols).unwrap();
+        encoder1.configure(0).unwrap();
+        encoder2.configure(0).unwrap();
 
         encoder1.set_data(&data).unwrap();
         encoder2.set_data(&data).unwrap();
@@ -927,18 +896,18 @@ mod tests {
     #[test]
     fn test_determinism_round_trip_with_sparse_and_dense_modes() {
         let seed = [88; 32];
-        let symbols = 4;
+        let _symbols = 4;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
         // Test sparse mode
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed(seed);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
 
         encoder1
-            .configure_with_sparsity(symbols, Some(0.3))
+            .configure_with_sparsity(Some(0.3))
             .unwrap();
         encoder2
-            .configure_with_sparsity(symbols, Some(0.3))
+            .configure_with_sparsity(Some(0.3))
             .unwrap();
 
         encoder1.set_data(&data).unwrap();
@@ -951,11 +920,11 @@ mod tests {
         assert_eq!(sparse_symbol1, sparse_symbol2);
 
         // Test dense mode
-        let mut encoder3 = RlnEncoder::<GF256, 4>::with_seed(seed);
-        let mut encoder4 = RlnEncoder::<GF256, 4>::with_seed(seed);
+        let mut encoder3 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
+        let mut encoder4 = RlnEncoder::<GF256, 4, 4>::with_seed(seed);
 
-        encoder3.configure_with_sparsity(symbols, None).unwrap();
-        encoder4.configure_with_sparsity(symbols, None).unwrap();
+        encoder3.configure_with_sparsity(None).unwrap();
+        encoder4.configure_with_sparsity(None).unwrap();
 
         encoder3.set_data(&data).unwrap();
         encoder4.set_data(&data).unwrap();
@@ -972,11 +941,11 @@ mod tests {
 
     #[test]
     fn test_encoder_stress_large_data() {
-        let mut encoder = RlnEncoder::<GF256, 1024>::new();
-        let symbols = 100;
+        let mut encoder = RlnEncoder::<GF256, 1024, 1000>::new();
+        let symbols = 1000;
         let symbol_size = 1024;
 
-        encoder.configure(symbols).unwrap();
+        encoder.configure(0).unwrap();
 
         let data = vec![0u8; symbols * symbol_size];
         encoder.set_data(&data).unwrap();
@@ -987,9 +956,9 @@ mod tests {
 
     #[test]
     fn test_encoder_sparsity_functionality() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        let mut encoder = RlnEncoder::<GF256, 4, 5>::new();
 
-        encoder.configure(5).unwrap();
+        encoder.configure(0).unwrap();
         let data = vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         ];
@@ -1022,28 +991,29 @@ mod tests {
 
     #[test]
     fn test_configure_with_sparsity() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::new();
 
         // Test configure with no sparsity (dense)
-        assert!(encoder.configure_with_sparsity(3, None).is_ok());
+        assert!(encoder.configure_with_sparsity(None).is_ok());
         assert_eq!(encoder.sparsity(), None);
 
         // Test configure with sparsity
-        assert!(encoder.configure_with_sparsity(4, Some(0.5)).is_ok());
+        assert!(encoder.configure_with_sparsity(Some(0.5)).is_ok());
         assert_eq!(encoder.sparsity(), Some(0.5));
 
         // Test configure with zero sparsity
-        assert!(encoder.configure_with_sparsity(2, Some(0.0)).is_ok());
+        assert!(encoder.configure_with_sparsity(Some(0.0)).is_ok());
         assert_eq!(encoder.sparsity(), Some(0.0));
 
-        // Test invalid configuration
-        assert!(encoder.configure_with_sparsity(0, Some(0.5)).is_err());
+        // Test that sparsity configuration works correctly
+        assert!(encoder.configure_with_sparsity(Some(0.7)).is_ok());
+        assert_eq!(encoder.sparsity(), Some(0.7));
     }
 
     #[test]
     fn test_encoder_zero_sparsity() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(4).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 4>::new();
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         encoder.set_data(&data).unwrap();
 
@@ -1067,8 +1037,8 @@ mod tests {
 
     #[test]
     fn test_encoder_full_sparsity() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(4).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 4>::new();
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         encoder.set_data(&data).unwrap();
 
@@ -1082,8 +1052,8 @@ mod tests {
 
     #[test]
     fn test_encoder_sparsity_config_options() {
-        let mut encoder = RlnEncoder::<GF256, 4>::new();
-        encoder.configure(3).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::new();
+        encoder.configure(0).unwrap();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         encoder.set_data(&data).unwrap();
 
@@ -1098,13 +1068,13 @@ mod tests {
 
     #[test]
     fn test_encoder_roundtrip_with_sparsity() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = crate::coding::rlnc::RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        encoder.configure(symbols).unwrap();
+        encoder.configure(0).unwrap();
         decoder.configure(symbols).unwrap();
 
         encoder.set_data(&data).unwrap();
@@ -1129,12 +1099,12 @@ mod tests {
     #[test]
     fn test_parallel_encoding_correctness() {
         // Test that parallel encoding works correctly
-        let mut encoder = RlnEncoder::<GF256, 64>::new();
+        let mut encoder = RlnEncoder::<GF256, 64, 50>::new();
 
-        // Use exactly 32 symbols to trigger parallel path
-        let symbols = 32;
+        // Use exactly 50 symbols to trigger parallel path
+        let symbols = 50;
         let symbol_size = 64;
-        encoder.configure(symbols).unwrap();
+        encoder.configure(0).unwrap();
 
         // Create deterministic test data - ensure exact size
         let data_size = symbols * symbol_size;
@@ -1195,8 +1165,8 @@ mod tests {
     #[test]
     fn test_packed_field_optimization_used() {
         // Test that the PackedField optimization is actually used for GF256
-        let mut encoder = RlnEncoder::<GF256, 16>::new();
-        encoder.configure(16).unwrap();
+        let mut encoder = RlnEncoder::<GF256, 16, 16>::new();
+        encoder.configure(0).unwrap();
 
         // Create test data - each symbol is [1, 1, 1, ..., 1] (16 bytes)
         let data = vec![1u8; 16 * 16]; // 16 symbols of 16 bytes each

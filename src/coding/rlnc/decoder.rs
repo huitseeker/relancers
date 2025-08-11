@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_decoder_round_trip() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_decoder_over_send() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([123; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([123; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 2;
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_streaming_decoder_incremental() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_streaming_decoder_partial_progress() {
-        let mut encoder = RlnEncoder::<GF256, 2>::with_seed([99; 32]);
+        let mut encoder = RlnEncoder::<GF256, 2, 4>::with_seed([99; 32]);
         let mut decoder = RlnDecoder::<GF256, 2>::new();
 
         let symbols = 4;
@@ -550,7 +550,7 @@ mod tests {
 
     #[test]
     fn test_redundant_contribution_detection() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
@@ -676,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_decoder_single_symbol() {
-        let mut encoder = RlnEncoder::<GF256, 8>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 8, 1>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 8>::new();
 
         encoder.configure(1).unwrap();
@@ -695,17 +695,17 @@ mod tests {
 
     #[test]
     fn test_decoder_reuse() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         // First use
-        encoder.configure(2).unwrap();
-        decoder.configure(2).unwrap();
+        encoder.configure(0).unwrap();
+        decoder.configure(3).unwrap();
 
-        let data1 = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let data1 = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         encoder.set_data(&data1).unwrap();
 
-        for _ in 0..2 {
+        for _ in 0..3 {
             let (coeffs, symbol) = encoder.encode_packet().unwrap();
             decoder.add_symbol(&coeffs, &symbol).unwrap();
         }
@@ -713,26 +713,25 @@ mod tests {
         let decoded1 = decoder.decode().unwrap();
         assert_eq!(decoded1, data1);
 
-        // Reconfigure and reuse
-        // only multiples of the original size
-        encoder.configure(3).unwrap();
-        decoder.configure(3).unwrap();
-
-        let data2 = vec![9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+        // Test with a new decoder for different data
+        let mut decoder2 = RlnDecoder::<GF256, 4>::new();
+        decoder2.configure(3).unwrap();
+        
+        let data2 = vec![13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
         encoder.set_data(&data2).unwrap();
 
         for _ in 0..3 {
             let (coeffs, symbol) = encoder.encode_packet().unwrap();
-            decoder.add_symbol(&coeffs, &symbol).unwrap();
+            decoder2.add_symbol(&coeffs, &symbol).unwrap();
         }
 
-        let decoded2 = decoder.decode().unwrap();
+        let decoded2 = decoder2.decode().unwrap();
         assert_eq!(decoded2, data2);
     }
 
     #[test]
     fn test_decoder_stress_large_data() {
-        let mut encoder = RlnEncoder::<GF256, 512>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 512, 50>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 512>::new();
 
         let symbols = 50;
@@ -756,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_decoder_out_of_order_symbols() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
@@ -785,7 +784,7 @@ mod tests {
 
     #[test]
     fn test_decoder_duplicate_symbols() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
@@ -827,7 +826,7 @@ mod tests {
 
     #[test]
     fn test_decoder_progress_calculation() {
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 4>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 4;
@@ -854,7 +853,7 @@ mod tests {
 
     #[test]
     fn test_decoder_random_data_patterns() {
-        let mut encoder = RlnEncoder::<GF256, 8>::with_seed([99; 32]);
+        let mut encoder = RlnEncoder::<GF256, 8, 5>::with_seed([99; 32]);
         let mut decoder = RlnDecoder::<GF256, 8>::new();
 
         let symbols = 5;
@@ -900,7 +899,7 @@ mod tests {
     #[test]
     fn test_seeded_encoder_decoder_compatibility() {
         // Test that seeded encoders produce outputs that decoders can decode
-        let mut encoder = RlnEncoder::<GF256, 16>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 16, 4>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 16>::new();
 
         let symbols = 4;
@@ -922,7 +921,7 @@ mod tests {
         }
 
         // Verify deterministic behavior - same seed should produce same packets
-        let mut encoder2 = RlnEncoder::<GF256, 16>::with_seed([42; 32]);
+        let mut encoder2 = RlnEncoder::<GF256, 16, 4>::with_seed([42; 32]);
         encoder2.configure(symbols).unwrap();
         encoder2.set_data(&data).unwrap();
 
@@ -949,8 +948,8 @@ mod tests {
         let symbols = 3;
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-        let mut encoder1 = RlnEncoder::<GF256, 4>::with_seed([1; 32]);
-        let mut encoder2 = RlnEncoder::<GF256, 4>::with_seed([2; 32]);
+        let mut encoder1 = RlnEncoder::<GF256, 4, 3>::with_seed([1; 32]);
+        let mut encoder2 = RlnEncoder::<GF256, 4, 3>::with_seed([2; 32]);
 
         encoder1.configure(symbols).unwrap();
         encoder2.configure(symbols).unwrap();
@@ -1000,7 +999,7 @@ mod tests {
         use crate::coding::traits::RecodingDecoder;
         use crate::utils::CodingRng;
 
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 3>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         let symbols = 3;
@@ -1031,7 +1030,7 @@ mod tests {
     fn test_recoding_three_node_network() {
         use crate::coding::traits::RecodingDecoder;
 
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
         let mut relay_decoder = RlnDecoder::<GF256, 4>::new();
         let mut final_decoder = RlnDecoder::<GF256, 4>::new();
 
@@ -1109,7 +1108,7 @@ mod tests {
     fn test_recoding_wrong_coefficients_length() {
         use crate::coding::traits::RecodingDecoder;
 
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         encoder.configure(2).unwrap();
@@ -1132,7 +1131,7 @@ mod tests {
     fn test_recoding_zero_coefficients() {
         use crate::coding::traits::RecodingDecoder;
 
-        let mut encoder = RlnEncoder::<GF256, 4>::with_seed([42; 32]);
+        let mut encoder = RlnEncoder::<GF256, 4, 2>::with_seed([42; 32]);
         let mut decoder = RlnDecoder::<GF256, 4>::new();
 
         encoder.configure(2).unwrap();
@@ -1159,7 +1158,7 @@ mod tests {
     fn test_recoding_bandwidth_efficiency() {
         use crate::coding::traits::RecodingDecoder;
 
-        let mut encoder = RlnEncoder::<GF256, 100>::with_seed([1; 32]);
+        let mut encoder = RlnEncoder::<GF256, 100, 5>::with_seed([1; 32]);
         let mut decoder = RlnDecoder::<GF256, 100>::new();
 
         encoder.configure(5).unwrap();

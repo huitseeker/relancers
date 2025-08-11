@@ -16,7 +16,7 @@ fn bench_rlnc_encoding(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::new();
     encoder.configure(symbols).unwrap();
     encoder.set_data(&data).unwrap();
 
@@ -28,7 +28,7 @@ fn bench_rlnc_encoding(c: &mut Criterion) {
     });
 
     // Add seeded encoder benchmark
-    let mut seeded_encoder = RlnEncoder::<GF256, SSIZE>::with_seed([42u8; 32]);
+    let mut seeded_encoder = RlnEncoder::<GF256, SSIZE, 32>::with_seed([42u8; 32]);
     seeded_encoder.configure(symbols).unwrap();
     seeded_encoder.set_data(&data).unwrap();
 
@@ -51,7 +51,7 @@ fn bench_rlnc_decoding(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::new();
     let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
     encoder.configure(symbols).unwrap();
@@ -165,7 +165,7 @@ fn bench_sparse_rlnc_encoding(c: &mut Criterion) {
     // Test different sparsity levels
     for sparsity in &[0.1, 0.3, 0.5, 0.8, 1.0] {
         let config = SparseConfig::new(*sparsity);
-        let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+        let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::new();
         encoder.configure(symbols).unwrap();
         encoder.set_sparsity_config(config);
         encoder.set_data(&data).unwrap();
@@ -192,7 +192,7 @@ fn bench_sparse_rlnc_decoding(c: &mut Criterion) {
     // Test different sparsity levels
     for sparsity in &[0.1, 0.3, 0.5, 0.8, 1.0] {
         let config = SparseConfig::new(*sparsity);
-        let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+        let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::new();
         let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
         encoder.configure(symbols).unwrap();
@@ -202,7 +202,7 @@ fn bench_sparse_rlnc_decoding(c: &mut Criterion) {
 
         // Use deterministic RLNC for reliable benchmarking
         let seed = [42u8; 32];
-        let mut deterministic_encoder = RlnEncoder::<GF256, SSIZE>::with_seed(seed);
+        let mut deterministic_encoder = RlnEncoder::<GF256, SSIZE, 32>::with_seed(seed);
         deterministic_encoder.configure(symbols).unwrap();
         deterministic_encoder.set_data(&data).unwrap();
 
@@ -247,7 +247,7 @@ fn bench_streaming_rlnc(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::new();
     let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
     encoder.configure(symbols).unwrap();
@@ -318,7 +318,7 @@ fn bench_rlnc_recoding(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(total_bytes));
 
-    let mut encoder = RlnEncoder::<GF256, SSIZE>::new();
+    let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::new();
     let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
     encoder.configure(symbols).unwrap();
@@ -378,7 +378,7 @@ fn bench_rlnc_seeded_roundtrip(c: &mut Criterion) {
     group.bench_function("seeded_encode_decode", |b| {
         b.iter(|| {
             // Create seeded encoder
-            let mut encoder = RlnEncoder::<GF256, SSIZE>::with_seed([42u8; 32]);
+            let mut encoder = RlnEncoder::<GF256, SSIZE, 32>::with_seed([42u8; 32]);
             let mut decoder = RlnDecoder::<GF256, SSIZE>::new();
 
             encoder.configure(symbols).unwrap();
