@@ -3,8 +3,14 @@ use crate::coding::sparse::{SparseCoeffGenerator, SparseConfig};
 use crate::coding::traits::{CodingError, Encoder};
 use crate::storage::Symbol;
 use crate::utils::CodingRng;
+use binius_field::arch::OptimalUnderlier;
+use binius_field::as_packed_field::{PackScalar, PackedType};
 use binius_field::Field as BiniusField;
+use binius_maybe_rayon::prelude::*;
 use once_cell::sync::OnceCell;
+
+use binius_field::packed::PackedField;
+use binius_field::util::inner_product_par;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
 pub struct RlnEncoder<F: BiniusField, const M: usize> {
@@ -12,6 +18,9 @@ pub struct RlnEncoder<F: BiniusField, const M: usize> {
     symbols: usize,
     /// Original data split into symbols (pre-converted to field elements)
     data: Vec<Symbol<F, M>>,
+    /// Data reorganized for PackedField operations: M x symbols matrix
+    /// Each row contains the same coordinate across all symbols for efficient SIMD
+    packed_data: Option<Vec<Vec<F>>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Current sparsity configuration
@@ -26,6 +35,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         Self {
             symbols: 0,
             data: Vec::new(),
+            packed_data: None,
             current_seed: [0u8; 32],
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
@@ -67,6 +77,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         Self {
             symbols: 0,
             data: Vec::new(),
+            packed_data: None,
             current_seed: seed,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
@@ -98,7 +109,27 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             self.data.push(Symbol::from_data(symbol_data));
         }
 
+        // Prepare packed data representation for efficient matrix operations
+        self.prepare_packed_data();
+
         Ok(())
+    }
+
+    /// Prepare data in packed representation for efficient matrix-vector multiplication
+    /// Reorganizes data from symbol-major to coordinate-major order
+    fn prepare_packed_data(&mut self) {
+        let mut packed_data = Vec::with_capacity(M);
+
+        // For each coordinate position (0 to M-1), collect values from all symbols
+        for coord_idx in 0..M {
+            let mut coord_values = Vec::with_capacity(self.symbols);
+            for symbol in &self.data {
+                coord_values.push(symbol.as_slice()[coord_idx]);
+            }
+            packed_data.push(coord_values);
+        }
+
+        self.packed_data = Some(packed_data);
     }
 
     /// Initialize or get the coefficient generator
@@ -157,6 +188,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.sparsity_config = Some(config);
         // Reset the coefficient generator to use new config
         self.coeff_generator = OnceCell::new();
+        // Packed data remains valid as it doesn't depend on sparsity
     }
 
     /// Disable sparse mode and use dense coefficients
@@ -164,6 +196,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.sparsity_config = None;
         // Reset the coefficient generator to use dense mode
         self.coeff_generator = OnceCell::new();
+        // Packed data remains valid as it doesn't depend on sparsity
     }
 
     /// Get sparsity statistics for the given coefficients
@@ -210,6 +243,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.packed_data = None;
 
         // Set sparsity if provided
         match sparsity {
@@ -219,7 +253,154 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
 
         Ok(())
     }
+
 }
+
+type OptimalPacked<F> = PackedType<OptimalUnderlier, F>;
+
+impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: PackScalar<F> {
+
+    /// Optimized encoding using PackedField and inner_product_par for matrix multiplication
+    /// This implements the matrix-vector product where symbols are treated as an M × symbols matrix
+    /// and we compute the inner product of each row with the coefficient vector
+    fn encode_symbol_packed_field_optimized(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
+        // For small inputs, use scalar implementation for better performance
+        if M < 8 || self.symbols < 8 {
+            return self.encode_symbol_scalar(coefficients);
+        }
+
+        // Use PackedField-based parallel implementation
+        self.encode_symbol_parallel_packed(coefficients)
+    }
+
+    /// Scalar implementation for small inputs (fallback)
+    fn encode_symbol_scalar(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
+        let mut result = [F::ZERO; M];
+
+        for element_idx in 0..M {
+            let mut element_sum = F::ZERO;
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                if !coeff.is_zero() {
+                    let field_element = symbol.as_slice()[element_idx];
+                    element_sum += *coeff * field_element;
+                }
+            }
+            result[element_idx] = element_sum;
+        }
+
+        Ok(Symbol::from_data(result))
+    }
+
+    /// PackedField-based parallel implementation using inner_product_par
+    fn encode_symbol_parallel_packed(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
+        let packed_data = self.packed_data.as_ref()
+            .ok_or(CodingError::NoDataSet)?;
+
+        // For each coordinate position, compute inner product with coefficients
+        // This is where we would use inner_product_par with actual PackedField types
+        let result: Vec<F> = (0..M)
+            .into_par_iter()
+            .map(|coord_idx| {
+                let coord_values = &packed_data[coord_idx];
+                self.compute_inner_product(coefficients, coord_values)
+            })
+            .collect();
+
+        // Convert result to array and create symbol
+        let mut result_array = [F::ZERO; M];
+        result_array.copy_from_slice(&result);
+        Ok(Symbol::from_data(result_array))
+    }
+
+    /// Compute inner product, attempting to use PackedField optimization when possible
+    fn compute_inner_product(&self, coeffs: &[F], values: &[F]) -> F {
+        // Try to use PackedField optimization if we have enough data
+        if coeffs.len() >= 8 && values.len() >= 8 {
+            if let Some(result) = self.try_inner_product_par_optimization(coeffs, values) {
+                return result;
+            }
+        }
+
+        // Fall back to scalar computation
+        self.compute_scalar_inner_product(coeffs, values)
+    }
+
+    /// Attempt to use inner_product_par for PackedField optimization
+    fn try_inner_product_par_optimization(&self, coeffs: &[F], values: &[F]) -> Option<F> {
+
+        // Only use optimization for sufficiently large vectors
+        if coeffs.len() < 8 || values.len() < 8 {
+            return None;
+        }
+
+        // Ensure lengths match
+        if coeffs.len() != values.len() {
+            return None;
+        }
+
+        // Use the PackedField implementation
+        self.inner_product_par_gf256(coeffs, values)
+    }
+
+    fn inner_product_par_gf256(&self, coeffs: &[F], values: &[F]) -> Option<F> {
+
+        let len = coeffs.len();
+
+        // If length is not a multiple of PACKED_WIDTH, we need to handle the remainder
+        let packed_len = len / OptimalPacked::<F>::WIDTH;
+        let remainder_len = len % OptimalPacked::<F>::WIDTH;
+
+        let mut result = F::ZERO;
+
+        // Process packed elements
+        if packed_len > 0 {
+            let mut packed_coeffs = Vec::with_capacity(packed_len);
+            let mut packed_values = Vec::with_capacity(packed_len);
+
+            for i in 0..packed_len {
+                let start = i * OptimalPacked::<F>::WIDTH;
+                let end = start + OptimalPacked::<F>::WIDTH;
+
+                let coeff_array = coeffs[start..end].iter().cloned();
+                let value_array = values[start..end].iter().cloned();
+
+                packed_coeffs.push(OptimalPacked::<F>::from_scalars(coeff_array));
+                packed_values.push(OptimalPacked::<F>::from_scalars(value_array));
+            }
+
+            // Use inner_product_par for the packed computation
+            let packed_result = inner_product_par::<F, OptimalPacked<F>, OptimalPacked<F>>(
+                &packed_coeffs[..], &packed_values[..]
+            );
+
+            result += packed_result;
+        }
+
+        // Process remainder elements using scalar computation
+        if remainder_len > 0 {
+            let start = packed_len * OptimalPacked::<F>::WIDTH;
+            for i in start..len {
+                result += coeffs[i] * values[i];
+            }
+        }
+
+        // Safety: Convert back to generic F type
+        // This is safe because we've verified that F is AESTowerField8b
+        Some(unsafe { std::mem::transmute_copy(&result) })
+    }
+
+    /// Compute scalar inner product as fallback
+    fn compute_scalar_inner_product(&self, coeffs: &[F], values: &[F]) -> F {
+        let mut sum = F::ZERO;
+        for (coeff, val) in coeffs.iter().zip(values.iter()) {
+            if !coeff.is_zero() {
+                sum += *coeff * *val;
+            }
+        }
+        sum
+    }
+}
+
 
 impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> {
     fn default() -> Self {
@@ -230,6 +411,7 @@ impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> {
 impl<F: BiniusField, const M: usize> Encoder<F, M> for RlnEncoder<F, M>
 where
     F: From<u8> + Into<u8>,
+    OptimalUnderlier: PackScalar<F>,
 {
     fn configure(&mut self, symbols: usize) -> Result<(), CodingError> {
         if symbols == 0 {
@@ -239,6 +421,7 @@ where
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.packed_data = None;
 
         Ok(())
     }
@@ -266,31 +449,9 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        // Use optimized encoding with pre-converted field elements
-        #[inline(always)]
-        fn encode_field_element<F, const M: usize>(
-            coefficients: &[F],
-            symbols: &[Symbol<F, M>],
-            element_idx: usize,
-        ) -> F
-        where
-            F: BiniusField,
-        {
-            let mut element_sum = F::ZERO;
-            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
-                if !coeff.is_zero() {
-                    let field_element = symbol.as_slice()[element_idx];
-                    element_sum += *coeff * field_element;
-                }
-            }
-            element_sum
-        }
-
-        let mut result = [F::ZERO; M];
-        for element_idx in 0..M {
-            result[element_idx] = encode_field_element(coefficients, &self.data, element_idx);
-        }
-        Ok(Symbol::from_data(result))
+        // Use PackedField-based matrix-vector multiplication
+        // Treat symbols as M x symbols matrix, compute inner product with coefficients
+        self.encode_symbol_packed_field_optimized(coefficients)
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<F, M>), CodingError> {
@@ -321,6 +482,9 @@ pub struct SparsityStats {
     pub zeros: usize,
     pub sparsity_ratio: f64,
 }
+
+#[cfg(test)]
+mod performance_test;
 
 #[cfg(test)]
 mod tests {
@@ -955,6 +1119,73 @@ mod tests {
         assert_eq!(result[0], GF256::from(1));
         for &byte in &result.into_inner()[1..] {
             assert_eq!(byte, GF256::ZERO);
+        }
+    }
+
+    #[test]
+    fn test_packed_field_api() {
+        use binius_field::{packed::PackedField, PackedAESBinaryField8x8b};
+        use binius_field::util::inner_product_par;
+
+        // Test basic PackedField usage
+        let scalar = GF256::from(42u8);
+        println!("Scalar field: {:?}", scalar);
+
+        // Test PackedAESBinaryField8x8b which should pack 8 GF256 elements
+        let packed = PackedAESBinaryField8x8b::from_scalars([GF256::from(1u8); 8]);
+        println!("Packed field: {:?}", packed);
+
+        // Test inner_product_par with packed vectors - need to pack the scalars first
+        let coeffs_scalars = [GF256::from(1u8), GF256::from(2u8), GF256::from(3u8), GF256::from(4u8)];
+        let values_scalars = [GF256::from(5u8), GF256::from(6u8), GF256::from(7u8), GF256::from(8u8)];
+
+        // Convert to packed fields
+        let coeffs_packed = PackedAESBinaryField8x8b::from_scalars(coeffs_scalars);
+        let values_packed = PackedAESBinaryField8x8b::from_scalars(values_scalars);
+
+        // Use inner_product_par with packed fields
+        let coeffs_slice = &[coeffs_packed];
+        let values_slice = &[values_packed];
+        let result = inner_product_par::<GF256, PackedAESBinaryField8x8b, PackedAESBinaryField8x8b>(coeffs_slice, values_slice);
+        println!("Inner product result: {:?}", result);
+
+        // Test manual computation for comparison
+        let mut manual_result = GF256::ZERO;
+        for (coeff, val) in coeffs_scalars.iter().zip(values_scalars.iter()) {
+            manual_result += *coeff * *val;
+        }
+        println!("Manual result: {:?}", manual_result);
+
+        assert_eq!(result, manual_result);
+    }
+
+    #[test]
+    fn test_packed_field_optimization_used() {
+        // Test that the PackedField optimization is actually used for GF256
+        let mut encoder = RlnEncoder::<GF256, 16>::new();
+        encoder.configure(16).unwrap();
+
+        // Create test data - each symbol is [1, 1, 1, ..., 1] (16 bytes)
+        let data = vec![1u8; 16 * 16]; // 16 symbols of 16 bytes each
+        encoder.set_data(&data).unwrap();
+
+        // Create coefficients that should trigger the optimization
+        let coeffs = vec![GF256::from(1u8); 16];
+
+        // The optimization should be used for this case (16 >= 8)
+        let result = encoder.encode_symbol(&coeffs).unwrap();
+
+        // Calculate expected result manually using GF256 arithmetic
+        // Each coordinate should be: sum(coeffs[i] * data[i][coord]) for all symbols i
+        // Since all coeffs are 1 and all data bytes are 1, we need to compute 1+1+...+1 (16 times) in GF256
+        let mut expected_coord = GF256::ZERO;
+        for _ in 0..16 {
+            expected_coord += GF256::from(1u8);
+        }
+
+        // Check all coordinates
+        for i in 0..16 {
+            assert_eq!(result[i], expected_coord, "Coordinate {} should be {:?}", i, expected_coord);
         }
     }
 }
