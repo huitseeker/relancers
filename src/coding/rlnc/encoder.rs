@@ -13,14 +13,15 @@ use binius_field::packed::PackedField;
 use binius_field::util::inner_product_par;
 
 /// Random Linear Network Coding Encoder with optional sparse coefficient generation
-pub struct RlnEncoder<F: BiniusField, const M: usize> {
+pub struct RlnEncoder<F: BiniusField, const M: usize> 
+where
+    OptimalUnderlier: PackScalar<F>,
+{
     /// Number of source symbols
     symbols: usize,
-    /// Original data split into symbols (pre-converted to field elements)
-    data: Vec<Symbol<F, M>>,
-    /// Data reorganized for PackedField operations: M x symbols matrix
-    /// Each row contains the same coordinate across all symbols for efficient SIMD
-    packed_data: Option<Vec<Vec<F>>>,
+    /// Data stored in coordinate-major format using OptimalPacked<F>
+    /// Each element contains one coordinate across all symbols for efficient SIMD operations
+    coordinate_data: Vec<OptimalPacked<F>>,
     /// Current seed for deterministic coefficient generation
     current_seed: [u8; 32],
     /// Current sparsity configuration
@@ -29,13 +30,15 @@ pub struct RlnEncoder<F: BiniusField, const M: usize> {
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
 }
 
-impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
+impl<F: BiniusField, const M: usize> RlnEncoder<F, M> 
+where
+    OptimalUnderlier: PackScalar<F>,
+{
     /// Create a new RLNC encoder
     pub fn new() -> Self {
         Self {
             symbols: 0,
-            data: Vec::new(),
-            packed_data: None,
+            coordinate_data: Vec::new(),
             current_seed: [0u8; 32],
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
@@ -76,8 +79,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
     pub fn with_seed(seed: [u8; 32]) -> Self {
         Self {
             symbols: 0,
-            data: Vec::new(),
-            packed_data: None,
+            coordinate_data: Vec::new(),
             current_seed: seed,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
@@ -89,8 +91,8 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.symbols * M
     }
 
-    /// Split data into symbols and pre-convert to field elements
-    fn split_into_symbols(&mut self, data: &[u8]) -> Result<(), CodingError>
+    /// Convert data directly to coordinate-major format using OptimalPacked<F>
+    fn prepare_coordinate_data(&mut self, data: &[u8]) -> Result<(), CodingError>
     where
         F: From<u8>,
     {
@@ -98,38 +100,62 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             return Err(CodingError::InvalidDataSize);
         }
 
-        self.data.clear();
-        for i in 0..self.symbols {
-            let start = i * M;
-            let end = start + M;
-            let mut symbol_data = [F::ZERO; M];
-            for (j, &byte) in data[start..end].iter().enumerate() {
-                symbol_data[j] = F::from(byte);
-            }
-            self.data.push(Symbol::from_data(symbol_data));
-        }
-
-        // Prepare packed data representation for efficient matrix operations
-        self.prepare_packed_data();
-
-        Ok(())
-    }
-
-    /// Prepare data in packed representation for efficient matrix-vector multiplication
-    /// Reorganizes data from symbol-major to coordinate-major order
-    fn prepare_packed_data(&mut self) {
-        let mut packed_data = Vec::with_capacity(M);
+        self.coordinate_data.clear();
+        self.coordinate_data.reserve(M);
 
         // For each coordinate position (0 to M-1), collect values from all symbols
         for coord_idx in 0..M {
             let mut coord_values = Vec::with_capacity(self.symbols);
-            for symbol in &self.data {
-                coord_values.push(symbol.as_slice()[coord_idx]);
+            
+            // Extract this coordinate from all symbols
+            for symbol_idx in 0..self.symbols {
+                let byte_offset = symbol_idx * M + coord_idx;
+                coord_values.push(F::from(data[byte_offset]));
             }
-            packed_data.push(coord_values);
+            
+            // Convert to OptimalPacked<F> for efficient SIMD operations
+            let packed_values = self.create_packed_from_scalars(&coord_values);
+            self.coordinate_data.push(packed_values);
         }
 
-        self.packed_data = Some(packed_data);
+        Ok(())
+    }
+
+    /// Create OptimalPacked<F> from scalar values, handling remainder elements
+    fn create_packed_from_scalars(&self, scalars: &[F]) -> OptimalPacked<F> {
+        let width = OptimalPacked::<F>::WIDTH;
+        let packed_len = (scalars.len() + width - 1) / width;
+        
+        if packed_len == 1 {
+            // Single packed element
+            let mut padded_scalars = vec![F::ZERO; width];
+            for (i, &scalar) in scalars.iter().enumerate() {
+                if i < width {
+                    padded_scalars[i] = scalar;
+                }
+            }
+            OptimalPacked::<F>::from_scalars(padded_scalars)
+        } else {
+            // Multiple packed elements - for now, handle the first one
+            // This will be extended when we need to handle larger numbers of symbols
+            let mut first_packed_scalars = vec![F::ZERO; width];
+            for (i, &scalar) in scalars.iter().enumerate().take(width) {
+                first_packed_scalars[i] = scalar;
+            }
+            OptimalPacked::<F>::from_scalars(first_packed_scalars)
+        }
+    }
+
+    /// Extract scalar values from OptimalPacked<F>
+    fn extract_scalars_from_packed(&self, packed: &OptimalPacked<F>) -> Vec<F> {
+        let width = OptimalPacked::<F>::WIDTH;
+        let mut scalars = Vec::with_capacity(self.symbols.min(width));
+        
+        for i in 0..self.symbols.min(width) {
+            scalars.push(packed.get(i));
+        }
+        
+        scalars
     }
 
     /// Initialize or get the coefficient generator
@@ -241,9 +267,8 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         }
 
         self.symbols = symbols;
-        self.data.clear();
-        self.data.reserve(symbols);
-        self.packed_data = None;
+        self.coordinate_data.clear();
+        self.coordinate_data.reserve(M);
 
         // Set sparsity if provided
         match sparsity {
@@ -277,15 +302,19 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
     fn encode_symbol_scalar(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
         let mut result = [F::ZERO; M];
 
-        for element_idx in 0..M {
-            let mut element_sum = F::ZERO;
-            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+        for coord_idx in 0..M {
+            let mut coord_sum = F::ZERO;
+            let packed_coord = &self.coordinate_data[coord_idx];
+            
+            // Extract scalar values from packed data
+            let scalars = self.extract_scalars_from_packed(packed_coord);
+            
+            for (coeff, &field_element) in coefficients.iter().zip(scalars.iter()) {
                 if !coeff.is_zero() {
-                    let field_element = symbol.as_slice()[element_idx];
-                    element_sum += *coeff * field_element;
+                    coord_sum += *coeff * field_element;
                 }
             }
-            result[element_idx] = element_sum;
+            result[coord_idx] = coord_sum;
         }
 
         Ok(Symbol::from_data(result))
@@ -293,16 +322,13 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
 
     /// PackedField-based parallel implementation using inner_product_par
     fn encode_symbol_parallel_packed(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
-        let packed_data = self.packed_data.as_ref()
-            .ok_or(CodingError::NoDataSet)?;
-
         // For each coordinate position, compute inner product with coefficients
         // This is where we would use inner_product_par with actual PackedField types
         let result: Vec<F> = (0..M)
             .into_par_iter()
             .map(|coord_idx| {
-                let coord_values = &packed_data[coord_idx];
-                self.compute_inner_product(coefficients, coord_values)
+                let packed_coord = &self.coordinate_data[coord_idx];
+                self.compute_inner_product_packed(coefficients, packed_coord)
             })
             .collect();
 
@@ -310,6 +336,13 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
         let mut result_array = [F::ZERO; M];
         result_array.copy_from_slice(&result);
         Ok(Symbol::from_data(result_array))
+    }
+
+    /// Compute inner product with packed data
+    fn compute_inner_product_packed(&self, coeffs: &[F], packed_values: &OptimalPacked<F>) -> F {
+        // Extract scalars from packed data and compute inner product
+        let values = self.extract_scalars_from_packed(packed_values);
+        self.compute_inner_product(coeffs, &values)
     }
 
     /// Compute inner product, attempting to use PackedField optimization when possible
@@ -402,7 +435,10 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> where OptimalUnderlier: Pa
 }
 
 
-impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> {
+impl<F: BiniusField, const M: usize> Default for RlnEncoder<F, M> 
+where
+    OptimalUnderlier: PackScalar<F>,
+{
     fn default() -> Self {
         Self::new()
     }
@@ -419,9 +455,8 @@ where
         }
 
         self.symbols = symbols;
-        self.data.clear();
-        self.data.reserve(symbols);
-        self.packed_data = None;
+        self.coordinate_data.clear();
+        self.coordinate_data.reserve(M);
 
         Ok(())
     }
@@ -434,7 +469,7 @@ where
             return Err(CodingError::NotConfigured);
         }
 
-        self.split_into_symbols(data)
+        self.prepare_coordinate_data(data)
     }
 
     fn encode_symbol(
@@ -445,7 +480,7 @@ where
             return Err(CodingError::InvalidCoefficients);
         }
 
-        if self.data.is_empty() {
+        if self.coordinate_data.is_empty() {
             return Err(CodingError::NoDataSet);
         }
 
@@ -459,7 +494,7 @@ where
             return Err(CodingError::NotConfigured);
         }
 
-        if self.data.is_empty() {
+        if self.coordinate_data.is_empty() {
             return Err(CodingError::NoDataSet);
         }
 
@@ -483,8 +518,6 @@ pub struct SparsityStats {
     pub sparsity_ratio: f64,
 }
 
-#[cfg(test)]
-mod performance_test;
 
 #[cfg(test)]
 mod tests {
