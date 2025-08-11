@@ -88,6 +88,22 @@ where
         N * M
     }
 
+    /// Returns the number of packed elements (stride) required to store all `N` symbols
+    /// in a coordinate-major layout using `OptimalPacked<F>`.
+    ///
+    /// This is useful for determining the number of SIMD-packed elements needed to
+    /// represent a full row (or column, depending on layout) of the data, where each
+    /// packed element contains `OptimalPacked::<F>::WIDTH` field elements.
+    ///
+    /// # Example
+    /// ```
+    /// // For N = 10, and OptimalPacked::<F>::WIDTH = 4, packed_stride() returns 3
+    /// // because (10 + 4 - 1) / 4 = 13 / 4 = 3
+    /// ```
+    pub const fn packed_stride() -> usize {
+        (N + OptimalPacked::<F>::WIDTH - 1) / OptimalPacked::<F>::WIDTH
+    }
+
     /// Convert data directly to coordinate-major format using OptimalPacked<F>
     fn prepare_coordinate_data(&mut self, data: &[u8]) -> Result<(), CodingError>
     where
@@ -108,30 +124,19 @@ where
             // Extract this coordinate from all symbols
             for symbol_idx in 0..N {
                 let byte_offset = symbol_idx * M + coord_idx;
-                coord_values.push(F::from(data[byte_offset]));
+                coord_values.push(data[byte_offset]);
             }
 
             // Convert to OptimalPacked<F> for efficient SIMD operations
             let packed_values =
-                // Row vectors can span multiple packed elements - for now, handle the first one
-                // This will be extended when we need to handle larger numbers of symbols
-                OptimalPacked::<F>::from_scalars(coord_values);
-            self.coordinate_data.push(packed_values);
+                coord_values.chunks(OptimalPacked::<F>::WIDTH).map(|chunk|
+                    OptimalPacked::<F>::from_scalars(chunk.iter().map(|byte| F::from(*byte))));
+            // Sanity-check the packing
+            debug_assert_eq!(packed_values.len(), Self::packed_stride());
+            self.coordinate_data.extend(packed_values);
         }
 
         Ok(())
-    }
-
-    /// Extract scalar values from OptimalPacked<F>
-    fn extract_scalars_from_packed(&self, packed: &OptimalPacked<F>) -> Vec<F> {
-        let width = OptimalPacked::<F>::WIDTH;
-        let mut scalars = Vec::with_capacity(N.min(width));
-
-        for i in 0..N.min(width) {
-            scalars.push(packed.get(i));
-        }
-
-        scalars
     }
 
     /// Initialize or get the coefficient generator
@@ -262,148 +267,33 @@ impl<F: BiniusField, const M: usize, const N: usize> RlnEncoder<F, M, N> where O
     /// This implements the matrix-vector product where symbols are treated as an M × N matrix
     /// and we compute the inner product of each row with the coefficient vector
     fn encode_symbol_packed_field_optimized(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
-        // For small inputs, use scalar implementation for better performance
-        if M < 8 || N < 8 {
-            return self.encode_symbol_scalar(coefficients);
-        }
-
         // Use PackedField-based parallel implementation
         self.encode_symbol_parallel_packed(coefficients)
-    }
-
-    /// Scalar implementation for small inputs (fallback)
-    fn encode_symbol_scalar(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
-        let mut result = [F::ZERO; M];
-
-        for coord_idx in 0..M {
-            let mut coord_sum = F::ZERO;
-            let packed_coord = &self.coordinate_data[coord_idx];
-
-            // Extract scalar values from packed data
-            let scalars = self.extract_scalars_from_packed(packed_coord);
-
-            for (coeff, &field_element) in coefficients.iter().zip(scalars.iter()) {
-                if !coeff.is_zero() {
-                    coord_sum += *coeff * field_element;
-                }
-            }
-            result[coord_idx] = coord_sum;
-        }
-
-        Ok(Symbol::from_data(result))
     }
 
     /// PackedField-based parallel implementation using inner_product_par
     fn encode_symbol_parallel_packed(&self, coefficients: &[F]) -> Result<Symbol<F, M>, CodingError> {
         // For each coordinate position, compute inner product with coefficients
+        let packed_coeffs: Vec<_> = coefficients.chunks(OptimalPacked::<F>::WIDTH).map(|chunk| OptimalPacked::<F>::from_scalars(chunk.iter().cloned())).collect();
+
+        // Sanity-check the packing
+        debug_assert_eq!(packed_coeffs.len(), Self::packed_stride());
+
         let result: Vec<F> = (0..M)
             .into_par_iter()
             .map(|coord_idx| {
-                let packed_coord = &self.coordinate_data[coord_idx];
-                self.compute_inner_product_packed(coefficients, packed_coord)
+                let start = coord_idx * Self::packed_stride();
+                let end = (coord_idx + 1) * Self::packed_stride();
+                let packed_coord = &self.coordinate_data[start..end];
+                inner_product_par(&packed_coeffs, packed_coord)
             })
             .collect();
 
         // Convert result to array and create symbol
-        let mut result_array = [F::ZERO; M];
-        result_array.copy_from_slice(&result);
+        let result_array: [F; M] = result.try_into().map_err(|_| CodingError::InvalidDataSize)?;
         Ok(Symbol::from_data(result_array))
     }
 
-    /// Compute inner product with packed data
-    fn compute_inner_product_packed(&self, coeffs: &[F], packed_values: &OptimalPacked<F>) -> F {
-        // Extract scalars from packed data and compute inner product
-        let values = self.extract_scalars_from_packed(packed_values);
-        self.compute_inner_product(coeffs, &values)
-    }
-
-    /// Compute inner product, attempting to use PackedField optimization when possible
-    fn compute_inner_product(&self, coeffs: &[F], values: &[F]) -> F {
-        // Try to use PackedField optimization if we have enough data
-        if coeffs.len() >= 8 && values.len() >= 8 {
-            if let Some(result) = self.try_inner_product_par_optimization(coeffs, values) {
-                return result;
-            }
-        }
-
-        // Fall back to scalar computation
-        self.compute_scalar_inner_product(coeffs, values)
-    }
-
-    /// Attempt to use inner_product_par for PackedField optimization
-    fn try_inner_product_par_optimization(&self, coeffs: &[F], values: &[F]) -> Option<F> {
-
-        // Only use optimization for sufficiently large vectors
-        if coeffs.len() < 8 || values.len() < 8 {
-            return None;
-        }
-
-        // Ensure lengths match
-        if coeffs.len() != values.len() {
-            return None;
-        }
-
-        // Use the PackedField implementation
-        self.inner_product_par_gf256(coeffs, values)
-    }
-
-    fn inner_product_par_gf256(&self, coeffs: &[F], values: &[F]) -> Option<F> {
-
-        let len = coeffs.len();
-
-        // If length is not a multiple of PACKED_WIDTH, we need to handle the remainder
-        let packed_len = len / OptimalPacked::<F>::WIDTH;
-        let remainder_len = len % OptimalPacked::<F>::WIDTH;
-
-        let mut result = F::ZERO;
-
-        // Process packed elements
-        if packed_len > 0 {
-            let mut packed_coeffs = Vec::with_capacity(packed_len);
-            let mut packed_values = Vec::with_capacity(packed_len);
-
-            for i in 0..packed_len {
-                let start = i * OptimalPacked::<F>::WIDTH;
-                let end = start + OptimalPacked::<F>::WIDTH;
-
-                let coeff_array = coeffs[start..end].iter().cloned();
-                let value_array = values[start..end].iter().cloned();
-
-                packed_coeffs.push(OptimalPacked::<F>::from_scalars(coeff_array));
-                packed_values.push(OptimalPacked::<F>::from_scalars(value_array));
-            }
-
-            // Use inner_product_par for the packed computation
-            let packed_result = inner_product_par::<F, OptimalPacked<F>, OptimalPacked<F>>(
-                &packed_coeffs[..], &packed_values[..]
-            );
-
-            result += packed_result;
-        }
-
-        // Process remainder elements using scalar computation
-        if remainder_len > 0 {
-            let start = packed_len * OptimalPacked::<F>::WIDTH;
-            for i in start..len {
-                result += coeffs[i] * values[i];
-            }
-        }
-
-        // Safety: Convert back to generic F type
-        // This is safe because we've verified that F is AESTowerField8b
-        Some(unsafe { std::mem::transmute_copy(&result) })
-    }
-
-    /// Compute scalar inner product as fallback
-    fn compute_scalar_inner_product(&self, coeffs: &[F], values: &[F]) -> F {
-        let mut sum = F::ZERO;
-        for (coeff, val) in coeffs.iter().zip(values.iter()) {
-            if !coeff.is_zero() {
-                sum += *coeff * *val;
-            }
-        }
-        sum
-    }
 }
 
 
