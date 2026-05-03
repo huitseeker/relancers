@@ -36,6 +36,21 @@ name = "conversion_benchmark"
 path = "benches/conversion_benchmark.rs"
 harness = false
 
+[[bench]]
+name = "rlnc_compare_encode"
+path = "benches/rlnc_compare_encode.rs"
+harness = false
+
+[[bench]]
+name = "rlnc_compare_decode"
+path = "benches/rlnc_compare_decode.rs"
+harness = false
+
+[[bench]]
+name = "rlnc_compare_recode"
+path = "benches/rlnc_compare_recode.rs"
+harness = false
+
 [features]
 default = ["serde"]
 serde = ["dep:serde"]
