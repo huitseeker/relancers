@@ -370,6 +370,44 @@ unsafe fn scale_avx512(dst: &mut [u8], scalar: u8) {
 // Public wrappers with runtime feature detection
 // ------------------------------------------------------------------
 
+/// Unchecked `scale_simd`. Caller must ensure `scalar != 0` and `scalar != 1`.
+#[inline]
+pub fn scale_simd_unchecked(dst: &mut [u8], scalar: u8) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx512vbmi") {
+        unsafe { scale_avx512(dst, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") {
+        unsafe { scale_avx2(dst, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("ssse3") {
+        unsafe { scale_ssse3(dst, scalar) };
+        return;
+    }
+    // Fallback
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    let mut i = 0;
+    let n = dst.len();
+    while i + 8 <= n {
+        dst[i] = table[dst[i] as usize];
+        dst[i + 1] = table[dst[i + 1] as usize];
+        dst[i + 2] = table[dst[i + 2] as usize];
+        dst[i + 3] = table[dst[i + 3] as usize];
+        dst[i + 4] = table[dst[i + 4] as usize];
+        dst[i + 5] = table[dst[i + 5] as usize];
+        dst[i + 6] = table[dst[i + 6] as usize];
+        dst[i + 7] = table[dst[i + 7] as usize];
+        i += 8;
+    }
+    for j in i..n {
+        dst[j] = table[dst[j] as usize];
+    }
+}
+
 /// Unchecked `scale_add_assign_simd`. Caller must ensure `scalar != 0` and `scalar != 1`.
 #[inline]
 pub fn scale_add_assign_simd_unchecked(dst: &mut [u8], src: &[u8], scalar: u8) {

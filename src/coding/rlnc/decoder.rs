@@ -180,8 +180,13 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                     for k in col..n {
                         mat_u8[col_off + k] = inv_tbl[mat_u8[col_off + k] as usize];
                     }
-                    let inv_f: F = unsafe { std::mem::transmute_copy(&inv_table) };
-                    symbols[col].scale(inv_f);
+                    let inv_s: u8 = inv_table;
+                    if inv_s != 1 {
+                        crate::utils::simd::scale_simd_unchecked(
+                            symbols[col].data_mut(),
+                            inv_s,
+                        );
+                    }
 
                     for row in 0..n {
                         if row == col { continue; }
@@ -192,13 +197,30 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                         for k in col..n {
                             mat_u8[row_off + k] ^= f_tbl[mat_u8[col_off + k] as usize];
                         }
-                        let factor_aes: AESTowerField8b = unsafe { std::mem::transmute_copy(&factor) };
-                        if row < col {
-                            let (left, right) = symbols.split_at_mut(col);
-                            left[row].scale_add_assign_aes(&right[0], factor_aes);
+                        if factor == 1 {
+                            if row < col {
+                                let (left, right) = symbols.split_at_mut(col);
+                                left[row].add_assign(&right[0]);
+                            } else {
+                                let (left, right) = symbols.split_at_mut(row);
+                                right[0].add_assign(&left[col]);
+                            }
                         } else {
-                            let (left, right) = symbols.split_at_mut(row);
-                            right[0].scale_add_assign_aes(&left[col], factor_aes);
+                            if row < col {
+                                let (left, right) = symbols.split_at_mut(col);
+                                crate::utils::simd::scale_add_assign_simd_unchecked(
+                                    left[row].data_mut(),
+                                    right[0].as_slice(),
+                                    factor,
+                                );
+                            } else {
+                                let (left, right) = symbols.split_at_mut(row);
+                                crate::utils::simd::scale_add_assign_simd_unchecked(
+                                    right[0].data_mut(),
+                                    left[col].as_slice(),
+                                    factor,
+                                );
+                            }
                         }
                     }
                 }
