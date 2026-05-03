@@ -52,6 +52,13 @@ name = "rlnc_compare_recode"
 path = "benches/rlnc_compare_recode.rs"
 harness = false
 
+[profile.optimized]
+inherits = "release"
+codegen-units = 1
+lto = true
+panic = "abort"
+opt-level = 3
+
 [features]
 default = ["serde", "nightly_features"]
 serde = ["dep:serde"]
