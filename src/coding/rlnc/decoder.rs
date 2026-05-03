@@ -138,23 +138,23 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
             symbols.set_len(self.symbols);
         }
 
-        // Build a flat coefficient matrix for better cache locality.
         let n = self.symbols;
-        let mut matrix = vec![F::ZERO; n * n];
-        for i in 0..n {
-            let coeffs = &self.coefficients[pivot_map[i]];
-            matrix[i * n..(i + 1) * n].copy_from_slice(coeffs);
-        }
 
         // Fast path for AESTowerField8b using precomputed multiplication table.
         let is_aes = std::any::TypeId::of::<F>()
             == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         if is_aes {
-            // Treat the flat coefficient matrix as raw bytes to avoid newtype overhead.
-            let mat_u8: &mut [u8] = unsafe {
-                std::slice::from_raw_parts_mut(matrix.as_mut_ptr() as *mut u8, matrix.len())
-            };
+            // Build a flat coefficient matrix as raw bytes to avoid newtype overhead.
+            let mut matrix = vec![0u8; n * n];
+            for i in 0..n {
+                let coeffs = &self.coefficients[pivot_map[i]];
+                let src: &[u8] = unsafe {
+                    std::slice::from_raw_parts(coeffs.as_ptr() as *const u8, n)
+                };
+                matrix[i * n..(i + 1) * n].copy_from_slice(src);
+            }
+            let mat_u8: &mut [u8] = &mut matrix;
             for col in 0..n {
                 let mut pivot = None;
                 for row in col..n {
@@ -203,6 +203,18 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                 }
             }
         } else {
+            let mut matrix: Vec<F> = Vec::with_capacity(n * n);
+            for i in 0..n {
+                let coeffs = &self.coefficients[pivot_map[i]];
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        coeffs.as_ptr(),
+                        matrix.as_mut_ptr().add(i * n),
+                        n,
+                    );
+                }
+            }
+            unsafe { matrix.set_len(n * n); }
             for col in 0..n {
                 let mut pivot = None;
                 for row in col..n {
@@ -311,12 +323,15 @@ where
 
         self.decoded_symbols = self.gaussian_elimination()?;
 
-        let mut result = Vec::with_capacity(self.symbols * M);
-        for symbol in &self.decoded_symbols {
-            result.extend_from_slice(symbol.as_slice());
-        }
-
-        Ok(result)
+        // Avoid a 512KB copy: transmute Vec<Symbol<M>> into Vec<u8>.
+        // Symbol<M> is #[repr(transparent)] over [u8; M] and Copy, so the
+        // memory layout is identical and no drop glue runs.
+        let mut symbols = std::mem::take(&mut self.decoded_symbols);
+        let len = symbols.len() * M;
+        let cap = symbols.capacity() * M;
+        let ptr = symbols.as_mut_ptr() as *mut u8;
+        std::mem::forget(symbols);
+        Ok(unsafe { Vec::from_raw_parts(ptr, len, cap) })
     }
 
     fn symbols_needed(&self) -> usize {
