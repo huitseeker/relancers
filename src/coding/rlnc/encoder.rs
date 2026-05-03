@@ -258,34 +258,14 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        // Use optimized encoding with specialized conversion paths
-        #[inline(always)]
-        fn encode_byte<F, const M: usize>(
-            coefficients: &[F],
-            symbols: &[Symbol<M>],
-            byte_idx: usize,
-        ) -> u8
-        where
-            F: BiniusField + From<u8> + Into<u8>,
-        {
-            let mut byte_sum = F::ZERO;
-            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
-                if !coeff.is_zero() {
-                    let byte = symbol.as_slice()[byte_idx];
-                    if byte != 0 {
-                        let field_byte = F::from(byte);
-                        byte_sum += *coeff * field_byte;
-                    }
-                }
+        let mut result = Symbol::<M>::zero();
+        for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+            if !coeff.is_zero() {
+                let scaled = symbol.scaled(*coeff);
+                result.add_assign(&scaled);
             }
-            byte_sum.into()
         }
-
-        let mut result = [0u8; M];
-        for byte_idx in 0..M {
-            result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
-        }
-        Ok(Symbol::from_data(result))
+        Ok(result)
     }
 
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError> {
