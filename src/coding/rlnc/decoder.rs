@@ -127,9 +127,15 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         }
 
         // Select the symbols in pivot order, avoiding clone of coefficients.
-        let mut symbols = Vec::with_capacity(self.symbols);
-        for src_idx in 0..self.symbols {
-            symbols.push(self.received_symbols[pivot_map[src_idx]].clone());
+        let mut symbols: Vec<Symbol<M>> = Vec::with_capacity(self.symbols);
+        unsafe {
+            for src_idx in 0..self.symbols {
+                std::ptr::write(
+                    symbols.as_mut_ptr().add(src_idx),
+                    self.received_symbols[pivot_map[src_idx]],
+                );
+            }
+            symbols.set_len(self.symbols);
         }
 
         // Build a flat coefficient matrix for better cache locality.
