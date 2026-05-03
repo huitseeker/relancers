@@ -66,12 +66,13 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     }
 
     /// Perform incremental Gaussian elimination and diagonalization.
-    fn incremental_diagonalization(&mut self) -> Result<(), CodingError>
+    /// Returns `true` if the rank increased, `false` if the row was redundant.
+    fn incremental_diagonalization(&mut self) -> Result<bool, CodingError>
     where
         F: From<u8> + Into<u8>,
     {
         if self.coefficients.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         let row_idx = self.coefficients.len() - 1;
@@ -79,14 +80,14 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         let _symbol = &self.received_symbols[row_idx];
 
         // Use optimized matrix to add row and maintain RREF.
-        // Skip the redundant rank-increase check since the caller already verified it.
+        // add_row_unchecked now correctly returns whether rank increased.
         let rank_increase = self.matrix.add_row_unchecked(coefficients)?;
 
         if !rank_increase {
             // Remove the last added coefficients and symbol as they don't contribute
             self.coefficients.pop();
             self.received_symbols.pop();
-            return Ok(());
+            return Ok(false);
         }
 
         // Update current rank from optimized matrix
@@ -101,7 +102,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     /// Perform Gaussian elimination to solve the system using the optimized matrix
@@ -321,17 +322,13 @@ where
             return Err(CodingError::InvalidCoefficients);
         }
 
-        // Check if this contribution increases rank (uses scratch_row, no alloc).
-        if !self.check_rank_increase(coefficients) {
-            return Err(CodingError::RedundantContribution);
-        }
-
         self.coefficients.push(coefficients.to_vec());
         self.received_symbols.push(symbol.clone());
 
-        // Perform incremental diagonalization only for useful contributions.
-        // Use add_row_unchecked since we already verified rank increase.
-        self.incremental_diagonalization()?;
+        // incremental_diagonalization pops the data if the row is redundant.
+        if !self.incremental_diagonalization()? {
+            return Err(CodingError::RedundantContribution);
+        }
 
         Ok(())
     }

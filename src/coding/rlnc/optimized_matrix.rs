@@ -83,6 +83,7 @@ impl<F: BiniusField> OptimizedMatrix<F> {
 
     /// Add a new row to the matrix and perform incremental RREF update.
     /// Skips the rank-increase check — caller must ensure the row is useful.
+    /// Returns `true` if the rank increased, `false` if the row was redundant.
     pub fn add_row_unchecked(&mut self, row_data: &[F]) -> Result<bool, CodingError> {
         if row_data.len() != self.cols {
             return Err(CodingError::InvalidCoefficients);
@@ -97,9 +98,7 @@ impl<F: BiniusField> OptimizedMatrix<F> {
         self.inv_permutation.push(new_row_idx);
 
         // Perform incremental RREF update
-        self.incremental_rref_update(new_row_idx)?;
-
-        Ok(true)
+        self.incremental_rref_update(new_row_idx)
     }
 
     /// Add a new row to the matrix and perform incremental RREF update.
@@ -151,9 +150,11 @@ impl<F: BiniusField> OptimizedMatrix<F> {
         transformed.iter().any(|&x| !x.is_zero())
     }
 
-    /// Perform incremental RREF update when adding a new row
-    fn incremental_rref_update(&mut self, row_idx: usize) -> Result<(), CodingError> {
+    /// Perform incremental RREF update when adding a new row.
+    /// Returns `true` if the rank increased.
+    fn incremental_rref_update(&mut self, row_idx: usize) -> Result<bool, CodingError> {
         let current_row = row_idx;
+        let old_rank = self.rank;
 
         for col in 0..self.cols {
             let val = self.get(current_row, col);
@@ -186,7 +187,7 @@ impl<F: BiniusField> OptimizedMatrix<F> {
             }
         }
 
-        Ok(())
+        Ok(self.rank > old_rank)
     }
 
     /// Perform row operation: target_row = target_row + source_row * factor
