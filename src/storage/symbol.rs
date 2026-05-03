@@ -64,21 +64,9 @@ impl<const M: usize> Symbol<M> {
         if scalar.is_zero() {
             self.data = [0u8; M];
         } else if scalar != F::ONE {
-            #[inline(always)]
-            fn scale_byte<F>(byte: &mut u8, scalar: F)
-            where
-                F: BiniusField + From<u8> + Into<u8>,
-            {
-                if *byte == 0 {
-                    return;
-                }
-                let field_byte = F::from(*byte);
-                let scaled = field_byte * scalar;
-                *byte = scaled.into();
-            }
-
             for byte in &mut self.data {
-                scale_byte(byte, scalar);
+                let field_byte = F::from(*byte);
+                *byte = (field_byte * scalar).into();
             }
         }
     }
