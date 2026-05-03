@@ -149,11 +149,125 @@ unsafe fn scale_ssse3(dst: &mut [u8], scalar: u8) {
 }
 
 // ------------------------------------------------------------------
+// AVX2 (256-bit) variants
+// ------------------------------------------------------------------
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn add_assign_avx2(dst: &mut [u8], src: &[u8]) {
+    use std::arch::x86_64::*;
+    assert_eq!(dst.len(), src.len());
+    let n = dst.len();
+    let mut i = 0;
+    while i + 128 <= n {
+        for k in 0..4 {
+            let d = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
+            let s = _mm256_loadu_si256(src.as_ptr().add(i + k * 32).cast());
+            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(d, s));
+        }
+        i += 128;
+    }
+    while i + 32 <= n {
+        let d = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
+        let s = _mm256_loadu_si256(src.as_ptr().add(i).cast());
+        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(d, s));
+        i += 32;
+    }
+    for j in i..n {
+        dst[j] ^= src[j];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    assert_eq!(dst.len(), src.len());
+    let tables = get_tables();
+    let l_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
+    let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
+    let nibble_mask = _mm256_set1_epi8(0x0f);
+
+    let n = dst.len();
+    let mut i = 0;
+    while i + 128 <= n {
+        for k in 0..4 {
+            let src_vec = _mm256_loadu_si256(src.as_ptr().add(i + k * 32).cast());
+            let src_lo = _mm256_and_si256(src_vec, nibble_mask);
+            let src_hi = _mm256_and_si256(_mm256_srli_epi64(src_vec, 4), nibble_mask);
+            let prod_lo = _mm256_shuffle_epi8(l_tbl, src_lo);
+            let prod_hi = _mm256_shuffle_epi8(h_tbl, src_hi);
+            let prod = _mm256_xor_si256(prod_lo, prod_hi);
+            let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
+            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(dst_vec, prod));
+        }
+        i += 128;
+    }
+    while i + 32 <= n {
+        let src_vec = _mm256_loadu_si256(src.as_ptr().add(i).cast());
+        let src_lo = _mm256_and_si256(src_vec, nibble_mask);
+        let src_hi = _mm256_and_si256(_mm256_srli_epi64(src_vec, 4), nibble_mask);
+        let prod_lo = _mm256_shuffle_epi8(l_tbl, src_lo);
+        let prod_hi = _mm256_shuffle_epi8(h_tbl, src_hi);
+        let prod = _mm256_xor_si256(prod_lo, prod_hi);
+        let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
+        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(dst_vec, prod));
+        i += 32;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] ^= table[src[j] as usize];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn scale_avx2(dst: &mut [u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    let tables = get_tables();
+    let l_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
+    let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
+    let nibble_mask = _mm256_set1_epi8(0x0f);
+
+    let n = dst.len();
+    let mut i = 0;
+    while i + 128 <= n {
+        for k in 0..4 {
+            let vec = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
+            let vec_lo = _mm256_and_si256(vec, nibble_mask);
+            let vec_hi = _mm256_and_si256(_mm256_srli_epi64(vec, 4), nibble_mask);
+            let prod_lo = _mm256_shuffle_epi8(l_tbl, vec_lo);
+            let prod_hi = _mm256_shuffle_epi8(h_tbl, vec_hi);
+            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(prod_lo, prod_hi));
+        }
+        i += 128;
+    }
+    while i + 32 <= n {
+        let vec = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
+        let vec_lo = _mm256_and_si256(vec, nibble_mask);
+        let vec_hi = _mm256_and_si256(_mm256_srli_epi64(vec, 4), nibble_mask);
+        let prod_lo = _mm256_shuffle_epi8(l_tbl, vec_lo);
+        let prod_hi = _mm256_shuffle_epi8(h_tbl, vec_hi);
+        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(prod_lo, prod_hi));
+        i += 32;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] = table[dst[j] as usize];
+    }
+}
+
+// ------------------------------------------------------------------
 // Public wrappers with runtime feature detection
 // ------------------------------------------------------------------
 
 #[inline]
 pub fn add_assign_simd(dst: &mut [u8], src: &[u8]) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") {
+        unsafe { add_assign_avx2(dst, src) };
+        return;
+    }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("ssse3") {
         unsafe { add_assign_ssse3(dst, src) };
@@ -188,6 +302,11 @@ pub fn scale_add_assign_simd(dst: &mut [u8], src: &[u8], scalar: u8) {
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") {
+        unsafe { scale_add_assign_avx2(dst, src, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("ssse3") {
         unsafe { scale_add_assign_ssse3(dst, src, scalar) };
         return;
@@ -219,6 +338,11 @@ pub fn scale_simd(dst: &mut [u8], scalar: u8) {
         return;
     }
     if scalar == 1 {
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") {
+        unsafe { scale_avx2(dst, scalar) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
