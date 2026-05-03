@@ -112,116 +112,125 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
             return Err(CodingError::InsufficientData);
         }
 
-        // Build a temporary matrix for solving the system
-        let mut temp_matrix = OptimizedMatrix::new(self.symbols);
-
-        // Add all coefficients to the temporary matrix
-        for coeff_vec in &self.coefficients {
-            let _ = temp_matrix.add_row(coeff_vec);
-        }
-
-        if !temp_matrix.is_full_rank() {
+        if !self.matrix.is_full_rank() {
             return Err(CodingError::InsufficientData);
         }
 
-        // Now we need to solve the system Ax = b where:
-        // A is our coefficient matrix, b is our received symbols
-
-        // Create a mapping from pivot positions to original symbols
+        // self.matrix already maintains the coefficient matrix in RREF.
+        // Its pivot_row(col) tells us which received row corresponds to each
+        // source column, in the same order as self.coefficients /
+        // self.received_symbols (no row swaps are performed in add_row).
         let mut pivot_map = vec![0; self.symbols];
-        let mut used_pivots = vec![false; self.coefficients.len()];
-
         for col in 0..self.symbols {
-            if let Some(pivot_row) = temp_matrix.pivot_row(col) {
-                pivot_map[col] = pivot_row;
-                used_pivots[pivot_row] = true;
-            }
+            pivot_map[col] = self.matrix.pivot_row(col)
+                .ok_or(CodingError::DecodingFailed)?;
         }
 
-        // Ensure we have exactly the required symbols
-        let mut selected_symbols = Vec::new();
-        let mut selected_coefficients = Vec::new();
-
+        // Select the symbols in pivot order, avoiding clone of coefficients.
+        let mut symbols = Vec::with_capacity(self.symbols);
         for src_idx in 0..self.symbols {
-            let pivot_row = pivot_map[src_idx];
-            selected_symbols.push(self.received_symbols[pivot_row].clone());
-            selected_coefficients.push(self.coefficients[pivot_row].clone());
+            symbols.push(self.received_symbols[pivot_map[src_idx]].clone());
         }
 
-        // Now solve the system using the selected symbols
-        let mut matrix = vec![vec![F::ZERO; self.symbols]; self.symbols];
-        for (i, coeffs) in selected_coefficients.iter().enumerate() {
-            matrix[i].copy_from_slice(coeffs);
-        }
-
-        // Perform Gaussian elimination on the selected matrix
-        let mut symbols = selected_symbols;
+        // Build a flat coefficient matrix for better cache locality.
         let n = self.symbols;
+        let mut matrix = vec![F::ZERO; n * n];
+        for i in 0..n {
+            let coeffs = &self.coefficients[pivot_map[i]];
+            matrix[i * n..(i + 1) * n].copy_from_slice(coeffs);
+        }
 
         // Fast path for AESTowerField8b using precomputed multiplication table.
         let is_aes = std::any::TypeId::of::<F>()
             == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
-        for col in 0..n {
-            // Find pivot
-            let mut pivot = None;
-            for row in col..n {
-                if !matrix[row][col].is_zero() {
-                    pivot = Some(row);
-                    break;
+        if is_aes {
+            // Treat the flat coefficient matrix as raw bytes to avoid newtype overhead.
+            let mat_u8: &mut [u8] = unsafe {
+                std::slice::from_raw_parts_mut(matrix.as_mut_ptr() as *mut u8, matrix.len())
+            };
+            for col in 0..n {
+                let mut pivot = None;
+                for row in col..n {
+                    if mat_u8[row * n + col] != 0 {
+                        pivot = Some(row);
+                        break;
+                    }
+                }
+                if let Some(pivot_row) = pivot {
+                    if pivot_row != col {
+                        let c_off = col * n;
+                        let p_off = pivot_row * n;
+                        for k in 0..n {
+                            mat_u8.swap(c_off + k, p_off + k);
+                        }
+                        symbols.swap(col, pivot_row);
+                    }
+                    let col_off = col * n;
+                    let p_inv = mat_u8[col_off + col];
+                    let inv_table = crate::utils::mul_table::MUL_INV_TABLE[p_inv as usize];
+                    let inv_tbl = &crate::utils::mul_table::MUL_TABLE[inv_table as usize];
+                    for k in col..n {
+                        mat_u8[col_off + k] = inv_tbl[mat_u8[col_off + k] as usize];
+                    }
+                    let inv_f: F = unsafe { std::mem::transmute_copy(&inv_table) };
+                    symbols[col].scale(inv_f);
+
+                    for row in 0..n {
+                        if row == col { continue; }
+                        let factor = mat_u8[row * n + col];
+                        if factor == 0 { continue; }
+                        let row_off = row * n;
+                        let f_tbl = &crate::utils::mul_table::MUL_TABLE[factor as usize];
+                        for k in col..n {
+                            mat_u8[row_off + k] ^= f_tbl[mat_u8[col_off + k] as usize];
+                        }
+                        let factor_aes: AESTowerField8b = unsafe { std::mem::transmute_copy(&factor) };
+                        if row < col {
+                            let (left, right) = symbols.split_at_mut(col);
+                            left[row].scale_add_assign_aes(&right[0], factor_aes);
+                        } else {
+                            let (left, right) = symbols.split_at_mut(row);
+                            right[0].scale_add_assign_aes(&left[col], factor_aes);
+                        }
+                    }
                 }
             }
-
-            if let Some(pivot_row) = pivot {
-                // Swap rows
-                matrix.swap(col, pivot_row);
-                symbols.swap(col, pivot_row);
-
-                // Normalize pivot row
-                let pivot_val = matrix[col][col];
-                let pivot_inv = pivot_val.invert().ok_or(CodingError::DecodingFailed)?;
-
-                if is_aes {
-                    let p_inv: u8 = unsafe { std::mem::transmute_copy(&pivot_inv) };
-                    let table = &crate::utils::mul_table::MUL_TABLE[p_inv as usize];
-                    for col_idx in col..n {
-                        let val: u8 = unsafe { std::mem::transmute_copy(&matrix[col][col_idx]) };
-                        matrix[col][col_idx] = unsafe { std::mem::transmute_copy(&table[val as usize]) };
-                    }
-                } else {
-                    for col_idx in col..n {
-                        matrix[col][col_idx] *= pivot_inv;
+        } else {
+            for col in 0..n {
+                let mut pivot = None;
+                for row in col..n {
+                    if !matrix[row * n + col].is_zero() {
+                        pivot = Some(row);
+                        break;
                     }
                 }
-                symbols[col].scale(pivot_inv);
-
-                // Eliminate other rows
-                for row in 0..n {
-                    if row != col && !matrix[row][col].is_zero() {
-                        let factor = matrix[row][col];
-                        if is_aes {
-                            let f: u8 = unsafe { std::mem::transmute_copy(&factor) };
-                            let table = &crate::utils::mul_table::MUL_TABLE[f as usize];
-                            for col_idx in col..n {
-                                let a: u8 = unsafe { std::mem::transmute_copy(&matrix[row][col_idx]) };
-                                let b: u8 = unsafe { std::mem::transmute_copy(&matrix[col][col_idx]) };
-                                let prod = table[b as usize];
-                                matrix[row][col_idx] = unsafe { std::mem::transmute_copy(&(a ^ prod)) };
-                            }
-                            let factor_aes: AESTowerField8b = unsafe { std::mem::transmute_copy(&factor) };
-                            unsafe {
-                                let src = &symbols[col] as *const Symbol<M>;
-                                let dst = &mut symbols[row] as *mut Symbol<M>;
-                                (*dst).scale_add_assign_aes(&*src, factor_aes);
-                            }
-                        } else {
-                            for col_idx in col..n {
-                                matrix[row][col_idx] =
-                                    matrix[row][col_idx] + matrix[col][col_idx] * factor;
-                            }
-                            let scaled = symbols[col].scaled(factor);
-                            symbols[row].add_assign(&scaled);
+                if let Some(pivot_row) = pivot {
+                    if pivot_row != col {
+                        let c_off = col * n;
+                        let p_off = pivot_row * n;
+                        for k in 0..n {
+                            matrix.swap(c_off + k, p_off + k);
                         }
+                        symbols.swap(col, pivot_row);
+                    }
+                    let col_off = col * n;
+                    let pivot_inv = matrix[col_off + col].invert().ok_or(CodingError::DecodingFailed)?;
+                    for k in col..n {
+                        matrix[col_off + k] *= pivot_inv;
+                    }
+                    symbols[col].scale(pivot_inv);
+
+                    for row in 0..n {
+                        if row == col { continue; }
+                        let factor = matrix[row * n + col];
+                        if factor.is_zero() { continue; }
+                        let row_off = row * n;
+                        for k in col..n {
+                            matrix[row_off + k] = matrix[row_off + k] + matrix[col_off + k] * factor;
+                        }
+                        let scaled = symbols[col].scaled(factor);
+                        symbols[row].add_assign(&scaled);
                     }
                 }
             }

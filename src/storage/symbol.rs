@@ -2,7 +2,7 @@ use binius_field::{AESTowerField8b, Field as BiniusField, PackedAESBinaryField16
 use std::ops::{Index, IndexMut};
 
 /// A symbol is a fixed-size chunk of data in a network coding context
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Symbol<const M: usize> {
     data: [u8; M],
