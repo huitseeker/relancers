@@ -51,9 +51,7 @@ impl<const M: usize> Symbol<M> {
 
     /// Add another symbol to this one (element-wise XOR for GF(256))
     pub fn add_assign(&mut self, other: &Self) {
-        for (a, b) in self.data.iter_mut().zip(other.data.iter()) {
-            *a ^= *b;
-        }
+        crate::utils::simd::add_assign_simd(&mut self.data, &other.data);
     }
 
     /// Scale this symbol by a field element
@@ -67,10 +65,7 @@ impl<const M: usize> Symbol<M> {
             // Fast path for AESTowerField8b using precomputed multiplication table.
             if std::any::TypeId::of::<F>() == std::any::TypeId::of::<AESTowerField8b>() {
                 let s: u8 = unsafe { std::mem::transmute_copy(&scalar) };
-                let table = &crate::utils::mul_table::MUL_TABLE[s as usize];
-                for byte in &mut self.data {
-                    *byte = table[*byte as usize];
-                }
+                crate::utils::simd::scale_simd(&mut self.data, s);
             } else {
                 for byte in &mut self.data {
                     let field_byte = F::from(*byte);
@@ -119,24 +114,7 @@ impl<const M: usize> Symbol<M> {
             return;
         }
         let s: u8 = unsafe { std::mem::transmute_copy(&scalar) };
-        let table = &crate::utils::mul_table::MUL_TABLE[s as usize];
-        let n = self.data.len();
-        let mut i = 0;
-        // Unroll by 8 to give the compiler more freedom to schedule loads and XORs.
-        while i + 8 <= n {
-            self.data[i]     ^= table[other.data[i]     as usize];
-            self.data[i + 1] ^= table[other.data[i + 1] as usize];
-            self.data[i + 2] ^= table[other.data[i + 2] as usize];
-            self.data[i + 3] ^= table[other.data[i + 3] as usize];
-            self.data[i + 4] ^= table[other.data[i + 4] as usize];
-            self.data[i + 5] ^= table[other.data[i + 5] as usize];
-            self.data[i + 6] ^= table[other.data[i + 6] as usize];
-            self.data[i + 7] ^= table[other.data[i + 7] as usize];
-            i += 8;
-        }
-        for j in i..n {
-            self.data[j] ^= table[other.data[j] as usize];
-        }
+        crate::utils::simd::scale_add_assign_simd(&mut self.data, &other.data, s);
     }
 }
 
