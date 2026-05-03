@@ -264,8 +264,17 @@ where
             let coeffs_u8: &[binius_field::AESTowerField8b] =
                 unsafe { std::mem::transmute(coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
-                if !coeff.is_zero() {
-                    result.scale_add_assign_aes(symbol, *coeff);
+                let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
+                if s != 0 {
+                    if s == 1 {
+                        result.add_assign(symbol);
+                    } else {
+                        crate::utils::simd::scale_add_assign_simd_unchecked(
+                            result.data_mut(),
+                            symbol.as_slice(),
+                            s,
+                        );
+                    }
                 }
             }
         } else {

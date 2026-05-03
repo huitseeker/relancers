@@ -56,7 +56,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     }
 
     /// Check if a new contribution increases the rank of the decoding matrix
-    pub fn check_rank_increase(&self, coefficients: &[F]) -> bool {
+    pub fn check_rank_increase(&mut self, coefficients: &[F]) -> bool {
         if coefficients.len() != self.symbols {
             return false;
         }
@@ -65,7 +65,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         self.matrix.check_rank_increase(coefficients)
     }
 
-    /// Perform incremental Gaussian elimination and diagonalization
+    /// Perform incremental Gaussian elimination and diagonalization.
     fn incremental_diagonalization(&mut self) -> Result<(), CodingError>
     where
         F: From<u8> + Into<u8>,
@@ -78,8 +78,9 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         let coefficients = &self.coefficients[row_idx];
         let _symbol = &self.received_symbols[row_idx];
 
-        // Use optimized matrix to add row and maintain RREF
-        let rank_increase = self.matrix.add_row(coefficients)?;
+        // Use optimized matrix to add row and maintain RREF.
+        // Skip the redundant rank-increase check since the caller already verified it.
+        let rank_increase = self.matrix.add_row_unchecked(coefficients)?;
 
         if !rank_increase {
             // Remove the last added coefficients and symbol as they don't contribute
@@ -298,7 +299,7 @@ where
             return Err(CodingError::InvalidCoefficients);
         }
 
-        // Check if this contribution increases rank
+        // Check if this contribution increases rank (uses scratch_row, no alloc).
         if !self.check_rank_increase(coefficients) {
             return Err(CodingError::RedundantContribution);
         }
@@ -306,7 +307,8 @@ where
         self.coefficients.push(coefficients.to_vec());
         self.received_symbols.push(symbol.clone());
 
-        // Perform incremental diagonalization only for useful contributions
+        // Perform incremental diagonalization only for useful contributions.
+        // Use add_row_unchecked since we already verified rank increase.
         self.incremental_diagonalization()?;
 
         Ok(())
@@ -381,11 +383,20 @@ where
                     let coeffs_u8: &[binius_field::AESTowerField8b] =
                         unsafe { std::mem::transmute(row_coefficients) };
                     for (coeff_idx, coeff) in coeffs_u8.iter().enumerate() {
-                        if !coeff.is_zero() && coeff_idx < self.received_symbols.len() {
-                            new_symbol.scale_add_assign_aes(
-                                &self.received_symbols[coeff_idx],
-                                *coeff,
-                            );
+                        if coeff_idx >= self.received_symbols.len() {
+                            break;
+                        }
+                        let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
+                        if s != 0 {
+                            if s == 1 {
+                                new_symbol.add_assign(&self.received_symbols[coeff_idx]);
+                            } else {
+                                crate::utils::simd::scale_add_assign_simd_unchecked(
+                                    new_symbol.data_mut(),
+                                    self.received_symbols[coeff_idx].as_slice(),
+                                    s,
+                                );
+                            }
                         }
                     }
                 } else {
@@ -403,7 +414,7 @@ where
         Ok(self.partial_symbols[index].clone())
     }
 
-    fn check_rank_increase(&self, coefficients: &[F]) -> bool {
+    fn check_rank_increase(&mut self, coefficients: &[F]) -> bool {
         self.check_rank_increase(coefficients)
     }
 }
@@ -432,8 +443,17 @@ where
             let coeffs_u8: &[binius_field::AESTowerField8b] =
                 unsafe { std::mem::transmute(recode_coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.received_symbols.iter()) {
-                if !coeff.is_zero() {
-                    recoded_symbol.scale_add_assign_aes(symbol, *coeff);
+                let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
+                if s != 0 {
+                    if s == 1 {
+                        recoded_symbol.add_assign(symbol);
+                    } else {
+                        crate::utils::simd::scale_add_assign_simd_unchecked(
+                            recoded_symbol.data_mut(),
+                            symbol.as_slice(),
+                            s,
+                        );
+                    }
                 }
             }
         } else {

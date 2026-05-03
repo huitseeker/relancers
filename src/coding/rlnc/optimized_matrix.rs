@@ -81,16 +81,11 @@ impl<F: BiniusField> OptimizedMatrix<F> {
         self.data[row * self.cols + col]
     }
 
-    /// Add a new row to the matrix and perform incremental RREF update
-    pub fn add_row(&mut self, row_data: &[F]) -> Result<bool, CodingError> {
+    /// Add a new row to the matrix and perform incremental RREF update.
+    /// Skips the rank-increase check — caller must ensure the row is useful.
+    pub fn add_row_unchecked(&mut self, row_data: &[F]) -> Result<bool, CodingError> {
         if row_data.len() != self.cols {
             return Err(CodingError::InvalidCoefficients);
-        }
-
-        // Check if this row increases the rank
-        let rank_increase = self.check_rank_increase(row_data);
-        if !rank_increase {
-            return Ok(false);
         }
 
         // Add the new row
@@ -107,8 +102,25 @@ impl<F: BiniusField> OptimizedMatrix<F> {
         Ok(true)
     }
 
-    /// Check if a new row would increase the rank
-    pub fn check_rank_increase(&self, row_data: &[F]) -> bool {
+    /// Add a new row to the matrix and perform incremental RREF update.
+    /// Checks rank increase first; returns `false` for redundant rows.
+    pub fn add_row(&mut self, row_data: &[F]) -> Result<bool, CodingError> {
+        if row_data.len() != self.cols {
+            return Err(CodingError::InvalidCoefficients);
+        }
+
+        // Check if this row increases the rank
+        let rank_increase = self.check_rank_increase(row_data);
+        if !rank_increase {
+            return Ok(false);
+        }
+
+        self.add_row_unchecked(row_data)
+    }
+
+    /// Check if a new row would increase the rank.
+    /// Uses internal scratch space to avoid allocation.
+    pub fn check_rank_increase(&mut self, row_data: &[F]) -> bool {
         if row_data.len() != self.cols {
             return false;
         }
@@ -118,8 +130,9 @@ impl<F: BiniusField> OptimizedMatrix<F> {
             return false;
         }
 
-        // Apply existing row operations to the new row
-        let mut transformed = row_data.to_vec();
+        // Copy row_data into scratch_row to avoid allocation.
+        self.scratch_row.copy_from_slice(row_data);
+        let transformed = &mut self.scratch_row;
 
         for col in 0..self.cols {
             if let Some(pivot_row) = self.pivots[col] {
