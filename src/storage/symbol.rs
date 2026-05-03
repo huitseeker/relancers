@@ -108,8 +108,8 @@ impl<const M: usize> Symbol<M> {
         Self { data: [value; M] }
     }
 
-    /// Add `other * scalar` to this symbol, using packed field operations for bulk throughput.
-    /// Falls back to scalar operations for the tail when `M` is not a multiple of 16.
+    /// Add `other * scalar` to this symbol in-place (i.e. `self += other * scalar`).
+    /// Uses the precomputed multiplication table for AESTowerField8b.
     pub fn scale_add_assign_aes(&mut self, other: &Self, scalar: AESTowerField8b) {
         if scalar.is_zero() {
             return;
@@ -118,22 +118,24 @@ impl<const M: usize> Symbol<M> {
             self.add_assign(other);
             return;
         }
-
-        const CHUNK: usize = 16;
+        let s: u8 = unsafe { std::mem::transmute_copy(&scalar) };
+        let table = &crate::utils::mul_table::MUL_TABLE[s as usize];
+        let n = self.data.len();
         let mut i = 0;
-        while i + CHUNK <= M {
-            let other_packed: PackedAESBinaryField16x8b =
-                bytemuck::pod_read_unaligned(&other.data[i..i + CHUNK]);
-            let self_packed: PackedAESBinaryField16x8b =
-                bytemuck::pod_read_unaligned(&self.data[i..i + CHUNK]);
-            let result = self_packed + other_packed * scalar;
-            self.data[i..i + CHUNK].copy_from_slice(bytemuck::bytes_of(&result));
-            i += CHUNK;
+        // Unroll by 8 to give the compiler more freedom to schedule loads and XORs.
+        while i + 8 <= n {
+            self.data[i]     ^= table[other.data[i]     as usize];
+            self.data[i + 1] ^= table[other.data[i + 1] as usize];
+            self.data[i + 2] ^= table[other.data[i + 2] as usize];
+            self.data[i + 3] ^= table[other.data[i + 3] as usize];
+            self.data[i + 4] ^= table[other.data[i + 4] as usize];
+            self.data[i + 5] ^= table[other.data[i + 5] as usize];
+            self.data[i + 6] ^= table[other.data[i + 6] as usize];
+            self.data[i + 7] ^= table[other.data[i + 7] as usize];
+            i += 8;
         }
-        // Scalar tail for any remainder.
-        for j in i..M {
-            let field_byte = AESTowerField8b::from(other.data[j]);
-            self.data[j] = (AESTowerField8b::from(self.data[j]) + field_byte * scalar).into();
+        for j in i..n {
+            self.data[j] ^= table[other.data[j] as usize];
         }
     }
 }

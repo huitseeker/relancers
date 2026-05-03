@@ -259,10 +259,21 @@ where
         }
 
         let mut result = Symbol::<M>::zero();
-        for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
-            if !coeff.is_zero() {
-                let scaled = symbol.scaled(*coeff);
-                result.add_assign(&scaled);
+        // Fast path for AESTowerField8b using precomputed multiplication table.
+        if std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>() {
+            let coeffs_u8: &[binius_field::AESTowerField8b] =
+                unsafe { std::mem::transmute(coefficients) };
+            for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
+                if !coeff.is_zero() {
+                    result.scale_add_assign_aes(symbol, *coeff);
+                }
+            }
+        } else {
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                if !coeff.is_zero() {
+                    let scaled = symbol.scaled(*coeff);
+                    result.add_assign(&scaled);
+                }
             }
         }
         Ok(result)

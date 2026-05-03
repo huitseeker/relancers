@@ -1,7 +1,7 @@
 use crate::coding::rlnc::optimized_matrix::OptimizedMatrix;
 use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
-use binius_field::Field as BiniusField;
+use binius_field::{AESTowerField8b, Field as BiniusField};
 
 /// Random Linear Network Coding Decoder
 pub struct RlnDecoder<F: BiniusField, const M: usize> {
@@ -91,25 +91,12 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         // Update current rank from optimized matrix
         self.current_rank = self.matrix.rank();
 
-        // Update pivot positions and decoded symbols
+        // Update pivot positions. Partial symbols are computed lazily in
+        // decode_symbol() to avoid redundant work during streaming ingestion.
         for col in 0..self.symbols {
             if let Some(pivot_row) = self.matrix.pivot_row(col) {
                 self.pivot_rows[col] = Some(pivot_row);
                 self.decoded[col] = true;
-
-                // Update partially decoded symbols based on RREF
-                let mut new_symbol = Symbol::<M>::zero();
-
-                // Build the solution for this column
-                let row_coefficients = self.matrix.get_row(pivot_row);
-                for (coeff_idx, coeff) in row_coefficients.iter().enumerate() {
-                    if !coeff.is_zero() && coeff_idx < self.received_symbols.len() {
-                        let scaled = self.received_symbols[coeff_idx].scaled(*coeff);
-                        new_symbol.add_assign(&scaled);
-                    }
-                }
-
-                self.partial_symbols[col] = Some(new_symbol);
             }
         }
 
@@ -171,6 +158,10 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         let mut symbols = selected_symbols;
         let n = self.symbols;
 
+        // Fast path for AESTowerField8b using precomputed multiplication table.
+        let is_aes = std::any::TypeId::of::<F>()
+            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
+
         for col in 0..n {
             // Find pivot
             let mut pivot = None;
@@ -190,8 +181,17 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                 let pivot_val = matrix[col][col];
                 let pivot_inv = pivot_val.invert().ok_or(CodingError::DecodingFailed)?;
 
-                for col_idx in col..n {
-                    matrix[col][col_idx] *= pivot_inv;
+                if is_aes {
+                    let p_inv: u8 = unsafe { std::mem::transmute_copy(&pivot_inv) };
+                    let table = &crate::utils::mul_table::MUL_TABLE[p_inv as usize];
+                    for col_idx in col..n {
+                        let val: u8 = unsafe { std::mem::transmute_copy(&matrix[col][col_idx]) };
+                        matrix[col][col_idx] = unsafe { std::mem::transmute_copy(&table[val as usize]) };
+                    }
+                } else {
+                    for col_idx in col..n {
+                        matrix[col][col_idx] *= pivot_inv;
+                    }
                 }
                 symbols[col].scale(pivot_inv);
 
@@ -199,12 +199,29 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                 for row in 0..n {
                     if row != col && !matrix[row][col].is_zero() {
                         let factor = matrix[row][col];
-                        for col_idx in col..n {
-                            matrix[row][col_idx] =
-                                matrix[row][col_idx] + matrix[col][col_idx] * factor;
+                        if is_aes {
+                            let f: u8 = unsafe { std::mem::transmute_copy(&factor) };
+                            let table = &crate::utils::mul_table::MUL_TABLE[f as usize];
+                            for col_idx in col..n {
+                                let a: u8 = unsafe { std::mem::transmute_copy(&matrix[row][col_idx]) };
+                                let b: u8 = unsafe { std::mem::transmute_copy(&matrix[col][col_idx]) };
+                                let prod = table[b as usize];
+                                matrix[row][col_idx] = unsafe { std::mem::transmute_copy(&(a ^ prod)) };
+                            }
+                            let factor_aes: AESTowerField8b = unsafe { std::mem::transmute_copy(&factor) };
+                            unsafe {
+                                let src = &symbols[col] as *const Symbol<M>;
+                                let dst = &mut symbols[row] as *mut Symbol<M>;
+                                (*dst).scale_add_assign_aes(&*src, factor_aes);
+                            }
+                        } else {
+                            for col_idx in col..n {
+                                matrix[row][col_idx] =
+                                    matrix[row][col_idx] + matrix[col][col_idx] * factor;
+                            }
+                            let scaled = symbols[col].scaled(factor);
+                            symbols[row].add_assign(&scaled);
                         }
-                        let scaled = symbols[col].scaled(factor);
-                        symbols[row].add_assign(&scaled);
                     }
                 }
             }
@@ -277,7 +294,6 @@ where
             return Err(CodingError::InsufficientData);
         }
 
-        self.init_matrix();
         self.decoded_symbols = self.gaussian_elimination()?;
 
         let mut result = Vec::with_capacity(self.symbols * M);
@@ -324,6 +340,36 @@ where
             return Ok(None);
         }
 
+        // Lazily compute partial symbol if not already cached.
+        if self.partial_symbols[index].is_none() && self.decoded[index] {
+            if let Some(pivot_row) = self.pivot_rows[index] {
+                let row_coefficients = self.matrix.get_row(pivot_row);
+                let mut new_symbol = Symbol::<M>::zero();
+                let is_aes = std::any::TypeId::of::<F>()
+                    == std::any::TypeId::of::<binius_field::AESTowerField8b>();
+                if is_aes {
+                    let coeffs_u8: &[binius_field::AESTowerField8b] =
+                        unsafe { std::mem::transmute(row_coefficients) };
+                    for (coeff_idx, coeff) in coeffs_u8.iter().enumerate() {
+                        if !coeff.is_zero() && coeff_idx < self.received_symbols.len() {
+                            new_symbol.scale_add_assign_aes(
+                                &self.received_symbols[coeff_idx],
+                                *coeff,
+                            );
+                        }
+                    }
+                } else {
+                    for (coeff_idx, coeff) in row_coefficients.iter().enumerate() {
+                        if !coeff.is_zero() && coeff_idx < self.received_symbols.len() {
+                            let scaled = self.received_symbols[coeff_idx].scaled(*coeff);
+                            new_symbol.add_assign(&scaled);
+                        }
+                    }
+                }
+                self.partial_symbols[index] = Some(new_symbol);
+            }
+        }
+
         Ok(self.partial_symbols[index].clone())
     }
 
@@ -351,11 +397,21 @@ where
 
         let mut recoded_symbol = Symbol::<M>::zero();
 
-        // Linear combination of received symbols using recode coefficients
-        for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {
-            if !coeff.is_zero() {
-                let scaled = symbol.scaled(*coeff);
-                recoded_symbol.add_assign(&scaled);
+        // Fast path for AESTowerField8b using precomputed multiplication table.
+        if std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>() {
+            let coeffs_u8: &[binius_field::AESTowerField8b] =
+                unsafe { std::mem::transmute(recode_coefficients) };
+            for (coeff, symbol) in coeffs_u8.iter().zip(self.received_symbols.iter()) {
+                if !coeff.is_zero() {
+                    recoded_symbol.scale_add_assign_aes(symbol, *coeff);
+                }
+            }
+        } else {
+            for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {
+                if !coeff.is_zero() {
+                    let scaled = symbol.scaled(*coeff);
+                    recoded_symbol.add_assign(&scaled);
+                }
             }
         }
 
