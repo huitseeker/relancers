@@ -1,4 +1,4 @@
-use binius_field::Field as BiniusField;
+use binius_field::{AESTowerField8b, Field as BiniusField, PackedAESBinaryField16x8b, PackedField};
 use std::ops::{Index, IndexMut};
 
 /// A symbol is a fixed-size chunk of data in a network coding context
@@ -64,9 +64,18 @@ impl<const M: usize> Symbol<M> {
         if scalar.is_zero() {
             self.data = [0u8; M];
         } else if scalar != F::ONE {
-            for byte in &mut self.data {
-                let field_byte = F::from(*byte);
-                *byte = (field_byte * scalar).into();
+            // Fast path for AESTowerField8b using precomputed multiplication table.
+            if std::any::TypeId::of::<F>() == std::any::TypeId::of::<AESTowerField8b>() {
+                let s: u8 = unsafe { std::mem::transmute_copy(&scalar) };
+                let table = &crate::utils::mul_table::MUL_TABLE[s as usize];
+                for byte in &mut self.data {
+                    *byte = table[*byte as usize];
+                }
+            } else {
+                for byte in &mut self.data {
+                    let field_byte = F::from(*byte);
+                    *byte = (field_byte * scalar).into();
+                }
             }
         }
     }
@@ -97,6 +106,35 @@ impl<const M: usize> Symbol<M> {
     /// Create a symbol filled with a specific value
     pub fn filled(value: u8) -> Self {
         Self { data: [value; M] }
+    }
+
+    /// Add `other * scalar` to this symbol, using packed field operations for bulk throughput.
+    /// Falls back to scalar operations for the tail when `M` is not a multiple of 16.
+    pub fn scale_add_assign_aes(&mut self, other: &Self, scalar: AESTowerField8b) {
+        if scalar.is_zero() {
+            return;
+        }
+        if scalar == AESTowerField8b::ONE {
+            self.add_assign(other);
+            return;
+        }
+
+        const CHUNK: usize = 16;
+        let mut i = 0;
+        while i + CHUNK <= M {
+            let other_packed: PackedAESBinaryField16x8b =
+                bytemuck::pod_read_unaligned(&other.data[i..i + CHUNK]);
+            let self_packed: PackedAESBinaryField16x8b =
+                bytemuck::pod_read_unaligned(&self.data[i..i + CHUNK]);
+            let result = self_packed + other_packed * scalar;
+            self.data[i..i + CHUNK].copy_from_slice(bytemuck::bytes_of(&result));
+            i += CHUNK;
+        }
+        // Scalar tail for any remainder.
+        for j in i..M {
+            let field_byte = AESTowerField8b::from(other.data[j]);
+            self.data[j] = (AESTowerField8b::from(self.data[j]) + field_byte * scalar).into();
+        }
     }
 }
 
