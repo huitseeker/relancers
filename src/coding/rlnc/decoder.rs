@@ -23,6 +23,8 @@ pub struct RlnDecoder<F: BiniusField, const M: usize> {
     pivot_rows: Vec<Option<usize>>,
     /// Partially decoded symbols (for streaming)
     partial_symbols: Vec<Option<Symbol<M>>>,
+    /// Cached flag: true when F is AESTowerField8b
+    is_aes: bool,
 }
 
 impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
@@ -38,6 +40,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
             current_rank: 0,
             pivot_rows: Vec::new(),
             partial_symbols: Vec::new(),
+            is_aes: false,
         }
     }
 
@@ -143,10 +146,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         let n = self.symbols;
 
         // Fast path for AESTowerField8b using precomputed multiplication table.
-        let is_aes = std::any::TypeId::of::<F>()
-            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
-
-        if is_aes {
+        if self.is_aes {
             // Build a flat coefficient matrix as raw bytes to avoid newtype overhead.
             let mut matrix = vec![0u8; n * n];
             for i in 0..n {
@@ -309,6 +309,8 @@ where
         self.pivot_rows.resize(symbols, None);
         self.partial_symbols.clear();
         self.partial_symbols.resize(symbols, None);
+        self.is_aes = std::any::TypeId::of::<F>()
+            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         Ok(())
     }
@@ -396,9 +398,7 @@ where
             if let Some(pivot_row) = self.pivot_rows[index] {
                 let row_coefficients = self.matrix.get_row(pivot_row);
                 let mut new_symbol = Symbol::<M>::zero();
-                let is_aes = std::any::TypeId::of::<F>()
-                    == std::any::TypeId::of::<binius_field::AESTowerField8b>();
-                if is_aes {
+                if self.is_aes {
                     let coeffs_u8: &[binius_field::AESTowerField8b] =
                         unsafe { std::mem::transmute(row_coefficients) };
                     for (coeff_idx, coeff) in coeffs_u8.iter().enumerate() {
@@ -458,7 +458,7 @@ where
         let mut recoded_symbol = Symbol::<M>::zero();
 
         // Fast path for AESTowerField8b using precomputed multiplication table.
-        if std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>() {
+        if self.is_aes {
             let coeffs_u8: &[binius_field::AESTowerField8b] =
                 unsafe { std::mem::transmute(recode_coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.received_symbols.iter()) {
