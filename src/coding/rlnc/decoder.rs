@@ -406,17 +406,11 @@ where
                             break;
                         }
                         let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
-                        if s != 0 {
-                            if s == 1 {
-                                new_symbol.add_assign(&self.received_symbols[coeff_idx]);
-                            } else {
-                                crate::utils::simd::scale_add_assign_simd_unchecked(
-                                    new_symbol.data_mut(),
-                                    self.received_symbols[coeff_idx].as_slice(),
-                                    s,
-                                );
-                            }
-                        }
+                        crate::utils::simd::scale_add_assign_simd_unchecked(
+                            new_symbol.data_mut(),
+                            self.received_symbols[coeff_idx].as_slice(),
+                            s,
+                        );
                     }
                 } else {
                     for (coeff_idx, coeff) in row_coefficients.iter().enumerate() {
@@ -463,17 +457,11 @@ where
                 unsafe { std::mem::transmute(recode_coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.received_symbols.iter()) {
                 let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
-                if s != 0 {
-                    if s == 1 {
-                        recoded_symbol.add_assign(symbol);
-                    } else {
-                        crate::utils::simd::scale_add_assign_simd_unchecked(
-                            recoded_symbol.data_mut(),
-                            symbol.as_slice(),
-                            s,
-                        );
-                    }
-                }
+                crate::utils::simd::scale_add_assign_simd_unchecked(
+                    recoded_symbol.data_mut(),
+                    symbol.as_slice(),
+                    s,
+                );
             }
         } else {
             for (coeff, symbol) in recode_coefficients.iter().zip(self.received_symbols.iter()) {

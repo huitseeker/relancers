@@ -1,5 +1,6 @@
 //! SIMD-accelerated GF(2^8) operations for AESTowerField8b.
 //! Uses the split-table technique (low/high nibble) with SSSE3 `_mm_shuffle_epi8`.
+//! Uses GFNI (`_mm_gf2p8mul_epi8`) when available for 1-instruction multiplication.
 //! Adapted from the gf-complete / rlnc approach.
 
 use std::sync::OnceLock;
@@ -361,12 +362,203 @@ unsafe fn scale_avx512(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
 }
 
 // ------------------------------------------------------------------
+// GFNI (1-instruction GF(2^8) multiply) variants
+// AESTowerField8b is natively compatible with GFNI's AES polynomial.
+// ------------------------------------------------------------------
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "gfni,avx512f,avx512bw,avx512vl")]
+unsafe fn scale_add_assign_gfni512(dst: &mut [u8], src: &[u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    assert_eq!(dst.len(), src.len());
+    let scalar_vec = _mm512_set1_epi8(scalar as i8);
+    let n = dst.len();
+    let mut i = 0;
+    while i + 256 <= n {
+        for k in 0..4 {
+            let src_vec = _mm512_loadu_si512(src.as_ptr().add(i + k * 64).cast());
+            let prod = _mm512_gf2p8mul_epi8(src_vec, scalar_vec);
+            let dst_vec = _mm512_loadu_si512(dst.as_ptr().add(i + k * 64).cast());
+            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), _mm512_xor_si512(dst_vec, prod));
+        }
+        i += 256;
+    }
+    while i + 64 <= n {
+        let src_vec = _mm512_loadu_si512(src.as_ptr().add(i).cast());
+        let prod = _mm512_gf2p8mul_epi8(src_vec, scalar_vec);
+        let dst_vec = _mm512_loadu_si512(dst.as_ptr().add(i).cast());
+        _mm512_storeu_si512(dst.as_mut_ptr().add(i).cast(), _mm512_xor_si512(dst_vec, prod));
+        i += 64;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] ^= table[src[j] as usize];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "gfni,avx512f,avx512bw,avx512vl")]
+unsafe fn scale_gfni512(dst: &mut [u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    let scalar_vec = _mm512_set1_epi8(scalar as i8);
+    let n = dst.len();
+    let mut i = 0;
+    while i + 256 <= n {
+        for k in 0..4 {
+            let vec = _mm512_loadu_si512(dst.as_ptr().add(i + k * 64).cast());
+            let prod = _mm512_gf2p8mul_epi8(vec, scalar_vec);
+            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), prod);
+        }
+        i += 256;
+    }
+    while i + 64 <= n {
+        let vec = _mm512_loadu_si512(dst.as_ptr().add(i).cast());
+        let prod = _mm512_gf2p8mul_epi8(vec, scalar_vec);
+        _mm512_storeu_si512(dst.as_mut_ptr().add(i).cast(), prod);
+        i += 64;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] = table[dst[j] as usize];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "gfni,avx2")]
+unsafe fn scale_add_assign_gfni256(dst: &mut [u8], src: &[u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    assert_eq!(dst.len(), src.len());
+    let scalar_vec = _mm256_set1_epi8(scalar as i8);
+    let n = dst.len();
+    let mut i = 0;
+    while i + 128 <= n {
+        for k in 0..4 {
+            let src_vec = _mm256_loadu_si256(src.as_ptr().add(i + k * 32).cast());
+            let prod = _mm256_gf2p8mul_epi8(src_vec, scalar_vec);
+            let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
+            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(dst_vec, prod));
+        }
+        i += 128;
+    }
+    while i + 32 <= n {
+        let src_vec = _mm256_loadu_si256(src.as_ptr().add(i).cast());
+        let prod = _mm256_gf2p8mul_epi8(src_vec, scalar_vec);
+        let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
+        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(dst_vec, prod));
+        i += 32;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] ^= table[src[j] as usize];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "gfni,avx2")]
+unsafe fn scale_gfni256(dst: &mut [u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    let scalar_vec = _mm256_set1_epi8(scalar as i8);
+    let n = dst.len();
+    let mut i = 0;
+    while i + 128 <= n {
+        for k in 0..4 {
+            let vec = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
+            let prod = _mm256_gf2p8mul_epi8(vec, scalar_vec);
+            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), prod);
+        }
+        i += 128;
+    }
+    while i + 32 <= n {
+        let vec = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
+        let prod = _mm256_gf2p8mul_epi8(vec, scalar_vec);
+        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), prod);
+        i += 32;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] = table[dst[j] as usize];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "gfni")]
+unsafe fn scale_add_assign_gfni128(dst: &mut [u8], src: &[u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    assert_eq!(dst.len(), src.len());
+    let scalar_vec = _mm_set1_epi8(scalar as i8);
+    let n = dst.len();
+    let mut i = 0;
+    while i + 64 <= n {
+        for k in 0..4 {
+            let src_vec = _mm_loadu_si128(src.as_ptr().add(i + k * 16).cast());
+            let prod = _mm_gf2p8mul_epi8(src_vec, scalar_vec);
+            let dst_vec = _mm_loadu_si128(dst.as_ptr().add(i + k * 16).cast());
+            _mm_storeu_si128(dst.as_mut_ptr().add(i + k * 16).cast(), _mm_xor_si128(dst_vec, prod));
+        }
+        i += 64;
+    }
+    while i + 16 <= n {
+        let src_vec = _mm_loadu_si128(src.as_ptr().add(i).cast());
+        let prod = _mm_gf2p8mul_epi8(src_vec, scalar_vec);
+        let dst_vec = _mm_loadu_si128(dst.as_ptr().add(i).cast());
+        _mm_storeu_si128(dst.as_mut_ptr().add(i).cast(), _mm_xor_si128(dst_vec, prod));
+        i += 16;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] ^= table[src[j] as usize];
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "gfni")]
+unsafe fn scale_gfni128(dst: &mut [u8], scalar: u8) {
+    use std::arch::x86_64::*;
+    let scalar_vec = _mm_set1_epi8(scalar as i8);
+    let n = dst.len();
+    let mut i = 0;
+    while i + 64 <= n {
+        for k in 0..4 {
+            let vec = _mm_loadu_si128(dst.as_ptr().add(i + k * 16).cast());
+            let prod = _mm_gf2p8mul_epi8(vec, scalar_vec);
+            _mm_storeu_si128(dst.as_mut_ptr().add(i + k * 16).cast(), prod);
+        }
+        i += 64;
+    }
+    while i + 16 <= n {
+        let vec = _mm_loadu_si128(dst.as_ptr().add(i).cast());
+        let prod = _mm_gf2p8mul_epi8(vec, scalar_vec);
+        _mm_storeu_si128(dst.as_mut_ptr().add(i).cast(), prod);
+        i += 16;
+    }
+    let table = &super::mul_table::MUL_TABLE[scalar as usize];
+    for j in i..n {
+        dst[j] = table[dst[j] as usize];
+    }
+}
+
+// ------------------------------------------------------------------
 // Public wrappers with runtime feature detection
 // ------------------------------------------------------------------
 
 /// Unchecked `scale_simd`. Caller must ensure `scalar != 0` and `scalar != 1`.
 #[inline]
 pub fn scale_simd_unchecked(dst: &mut [u8], scalar: u8) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_gfni512(dst, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_gfni256(dst, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("gfni") {
+        unsafe { scale_gfni128(dst, scalar) };
+        return;
+    }
     let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
@@ -406,6 +598,21 @@ pub fn scale_simd_unchecked(dst: &mut [u8], scalar: u8) {
 /// Unchecked `scale_add_assign_simd`. Caller must ensure `scalar != 0` and `scalar != 1`.
 #[inline]
 pub fn scale_add_assign_simd_unchecked(dst: &mut [u8], src: &[u8], scalar: u8) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_add_assign_gfni512(dst, src, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_add_assign_gfni256(dst, src, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("gfni") {
+        unsafe { scale_add_assign_gfni128(dst, src, scalar) };
+        return;
+    }
     let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
@@ -487,6 +694,21 @@ pub fn scale_add_assign_simd(dst: &mut [u8], src: &[u8], scalar: u8) {
         add_assign_simd(dst, src);
         return;
     }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_add_assign_gfni512(dst, src, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_add_assign_gfni256(dst, src, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("gfni") {
+        unsafe { scale_add_assign_gfni128(dst, src, scalar) };
+        return;
+    }
     let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
@@ -530,6 +752,21 @@ pub fn scale_simd(dst: &mut [u8], scalar: u8) {
         return;
     }
     if scalar == 1 {
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_gfni512(dst, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("gfni") {
+        unsafe { scale_gfni256(dst, scalar) };
+        return;
+    }
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("gfni") {
+        unsafe { scale_gfni128(dst, scalar) };
         return;
     }
     let tables = get_tables();

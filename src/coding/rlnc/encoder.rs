@@ -273,17 +273,14 @@ where
                 unsafe { std::mem::transmute(coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
                 let s: u8 = unsafe { *(coeff as *const _ as *const u8) };
-                if s != 0 {
-                    if s == 1 {
-                        result.add_assign(symbol);
-                    } else {
-                        crate::utils::simd::scale_add_assign_simd_unchecked(
-                            result.data_mut(),
-                            symbol.as_slice(),
-                            s,
-                        );
-                    }
-                }
+                // Branchless: always call unchecked SIMD. For s==0 the result is
+                // dst ^= src * 0 == dst (no-op), but we avoid branch mispredictions.
+                // For s==1 the result is dst ^= src, same as add_assign.
+                crate::utils::simd::scale_add_assign_simd_unchecked(
+                    result.data_mut(),
+                    symbol.as_slice(),
+                    s,
+                );
             }
         } else {
             for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
