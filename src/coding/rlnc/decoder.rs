@@ -1,7 +1,7 @@
 use crate::coding::rlnc::optimized_matrix::OptimizedMatrix;
 use crate::coding::traits::{CodingError, Decoder, StreamingDecoder};
 use crate::storage::Symbol;
-use binius_field::{AESTowerField8b, Field as BiniusField};
+use binius_field::Field as BiniusField;
 
 /// Random Linear Network Coding Decoder
 pub struct RlnDecoder<F: BiniusField, const M: usize> {
@@ -45,6 +45,7 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
     }
 
     /// Initialize the Gaussian elimination matrix
+    #[allow(dead_code)]
     fn init_matrix(&mut self) {
         self.matrix.clear();
         self.matrix = OptimizedMatrix::new(self.symbols);
@@ -336,7 +337,7 @@ where
         }
 
         self.coefficients.push(coefficients.to_vec());
-        self.received_symbols.push(symbol.clone());
+        self.received_symbols.push(*symbol);
 
         // incremental_diagonalization pops the data if the row is redundant.
         if !self.incremental_diagonalization()? {
@@ -435,7 +436,7 @@ where
             }
         }
 
-        Ok(self.partial_symbols[index].clone())
+        Ok(self.partial_symbols[index])
     }
 
     fn check_rank_increase(&mut self, coefficients: &[F]) -> bool {

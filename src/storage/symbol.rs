@@ -1,4 +1,4 @@
-use binius_field::{AESTowerField8b, Field as BiniusField, PackedAESBinaryField16x8b, PackedField};
+use binius_field::{AESTowerField8b, Field as BiniusField};
 use std::ops::{Index, IndexMut};
 
 /// A symbol is a fixed-size chunk of data in a network coding context
@@ -80,7 +80,7 @@ impl<const M: usize> Symbol<M> {
     where
         F: BiniusField + From<u8> + Into<u8>,
     {
-        let mut result = self.clone();
+        let mut result = *self;
         result.scale(scalar);
         result
     }

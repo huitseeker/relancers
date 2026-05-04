@@ -33,7 +33,7 @@ impl CodingRng {
             let mut bytes = vec![0u8; count];
             use rand::Rng;
             self.rng.fill(&mut bytes[..]);
-            return unsafe { std::mem::transmute(bytes) };
+            return unsafe { std::mem::transmute::<Vec<u8>, Vec<F>>(bytes) };
         }
         let mut res = Vec::with_capacity(count);
         for _ in 0..count {

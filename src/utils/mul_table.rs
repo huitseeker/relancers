@@ -1,3 +1,7 @@
+//! Precomputed multiplication tables for AES GF(2^8) arithmetic.
+
+/// Precomputed 256×256 multiplication table for AESTowerField8b.
+/// MUL_TABLE[a][b] = a * b in the AES tower field.
 pub static MUL_TABLE: [[u8; 256]; 256] = [
     [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

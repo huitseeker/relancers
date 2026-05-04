@@ -737,6 +737,7 @@ pub fn scale_add_assign_simd_unchecked(dst: &mut [u8], src: &[u8], scalar: u8) {
 }
 
 #[inline]
+/// Element-wise XOR of `src` into `dst` using SIMD when available.
 pub fn add_assign_simd(dst: &mut [u8], src: &[u8]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
@@ -773,6 +774,7 @@ pub fn add_assign_simd(dst: &mut [u8], src: &[u8]) {
 }
 
 #[inline]
+/// Multiply `src` by `scalar` and XOR the result into `dst` using SIMD when available.
 pub fn scale_add_assign_simd(dst: &mut [u8], src: &[u8], scalar: u8) {
     if scalar == 0 {
         return;
@@ -833,6 +835,7 @@ pub fn scale_add_assign_simd(dst: &mut [u8], src: &[u8], scalar: u8) {
 }
 
 #[inline]
+/// Multiply `dst` in-place by `scalar` using SIMD when available.
 pub fn scale_simd(dst: &mut [u8], scalar: u8) {
     if scalar == 0 {
         dst.fill(0);

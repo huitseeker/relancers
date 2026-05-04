@@ -150,7 +150,7 @@ where
         }
 
         self.coefficients.push(coefficients.to_vec());
-        self.received_symbols.push(symbol.clone());
+        self.received_symbols.push(*symbol);
 
         Ok(())
     }
