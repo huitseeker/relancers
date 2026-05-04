@@ -18,6 +18,8 @@ pub struct RlnEncoder<F: BiniusField, const M: usize> {
     sparsity_config: Option<SparseConfig>,
     /// Configured coefficient generator
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
+    /// Cached flag: true when F is AESTowerField8b
+    is_aes: bool,
 }
 
 impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
@@ -29,6 +31,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             current_seed: [0u8; 32],
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
+            is_aes: false,
         }
     }
 
@@ -70,6 +73,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             current_seed: seed,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
+            is_aes: false,
         }
     }
 
@@ -205,6 +209,8 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.is_aes = std::any::TypeId::of::<F>()
+            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         // Set sparsity if provided
         match sparsity {
@@ -234,6 +240,8 @@ where
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.is_aes = std::any::TypeId::of::<F>()
+            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         Ok(())
     }
@@ -260,7 +268,7 @@ where
 
         let mut result = Symbol::<M>::zero();
         // Fast path for AESTowerField8b using precomputed multiplication table.
-        if std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>() {
+        if self.is_aes {
             let coeffs_u8: &[binius_field::AESTowerField8b] =
                 unsafe { std::mem::transmute(coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
