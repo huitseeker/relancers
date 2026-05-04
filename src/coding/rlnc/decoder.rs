@@ -127,7 +127,9 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
         // self.received_symbols (no row swaps are performed in add_row).
         let mut pivot_map = vec![0; self.symbols];
         for col in 0..self.symbols {
-            pivot_map[col] = self.matrix.pivot_row(col)
+            pivot_map[col] = self
+                .matrix
+                .pivot_row(col)
                 .ok_or(CodingError::DecodingFailed)?;
         }
 
@@ -151,9 +153,8 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
             let mut matrix = vec![0u8; n * n];
             for i in 0..n {
                 let coeffs = &self.coefficients[pivot_map[i]];
-                let src: &[u8] = unsafe {
-                    std::slice::from_raw_parts(coeffs.as_ptr() as *const u8, n)
-                };
+                let src: &[u8] =
+                    unsafe { std::slice::from_raw_parts(coeffs.as_ptr() as *const u8, n) };
                 matrix[i * n..(i + 1) * n].copy_from_slice(src);
             }
             let mat_u8: &mut [u8] = &mut matrix;
@@ -183,16 +184,17 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                     }
                     let inv_s: u8 = inv_table;
                     if inv_s != 1 {
-                        crate::utils::simd::scale_simd_unchecked(
-                            symbols[col].data_mut(),
-                            inv_s,
-                        );
+                        crate::utils::simd::scale_simd_unchecked(symbols[col].data_mut(), inv_s);
                     }
 
                     for row in 0..n {
-                        if row == col { continue; }
+                        if row == col {
+                            continue;
+                        }
                         let factor = mat_u8[row * n + col];
-                        if factor == 0 { continue; }
+                        if factor == 0 {
+                            continue;
+                        }
                         let row_off = row * n;
                         let f_tbl = &crate::utils::mul_table::MUL_TABLE[factor as usize];
                         for k in col..n {
@@ -238,7 +240,9 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                     );
                 }
             }
-            unsafe { matrix.set_len(n * n); }
+            unsafe {
+                matrix.set_len(n * n);
+            }
             for col in 0..n {
                 let mut pivot = None;
                 for row in col..n {
@@ -257,19 +261,26 @@ impl<F: BiniusField, const M: usize> RlnDecoder<F, M> {
                         symbols.swap(col, pivot_row);
                     }
                     let col_off = col * n;
-                    let pivot_inv = matrix[col_off + col].invert().ok_or(CodingError::DecodingFailed)?;
+                    let pivot_inv = matrix[col_off + col]
+                        .invert()
+                        .ok_or(CodingError::DecodingFailed)?;
                     for k in col..n {
                         matrix[col_off + k] *= pivot_inv;
                     }
                     symbols[col].scale(pivot_inv);
 
                     for row in 0..n {
-                        if row == col { continue; }
+                        if row == col {
+                            continue;
+                        }
                         let factor = matrix[row * n + col];
-                        if factor.is_zero() { continue; }
+                        if factor.is_zero() {
+                            continue;
+                        }
                         let row_off = row * n;
                         for k in col..n {
-                            matrix[row_off + k] = matrix[row_off + k] + matrix[col_off + k] * factor;
+                            matrix[row_off + k] =
+                                matrix[row_off + k] + matrix[col_off + k] * factor;
                         }
                         let scaled = symbols[col].scaled(factor);
                         symbols[row].add_assign(&scaled);
@@ -309,8 +320,8 @@ where
         self.pivot_rows.resize(symbols, None);
         self.partial_symbols.clear();
         self.partial_symbols.resize(symbols, None);
-        self.is_aes = std::any::TypeId::of::<F>()
-            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
+        self.is_aes =
+            std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         Ok(())
     }

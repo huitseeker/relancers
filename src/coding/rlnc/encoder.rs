@@ -209,8 +209,8 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
-        self.is_aes = std::any::TypeId::of::<F>()
-            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
+        self.is_aes =
+            std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         // Set sparsity if provided
         match sparsity {
@@ -240,8 +240,8 @@ where
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
-        self.is_aes = std::any::TypeId::of::<F>()
-            == std::any::TypeId::of::<binius_field::AESTowerField8b>();
+        self.is_aes =
+            std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         Ok(())
     }

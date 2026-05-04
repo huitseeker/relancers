@@ -1,16 +1,36 @@
+use relancers::storage::Symbol;
+
 fn main() {
+    let a = Symbol::<32768>::from_data([1u8; 32768]);
+    let b = Symbol::<32768>::from_data([2u8; 32768]);
+    let mut c = Symbol::<32768>::zero();
+
+    // Warmup
+    for _ in 0..1000 {
+        c = a.clone();
+        c.scale_add_assign_aes(&b, binius_field::AESTowerField8b::from(0x55));
+    }
+
     let start = std::time::Instant::now();
-    let mut sum = 0u64;
-    for _ in 0..1_000_000 {
-        if std::is_x86_feature_detected!("avx512vbmi") {
-            sum += 1;
-        } else if std::is_x86_feature_detected!("avx2") {
-            sum += 2;
-        } else {
-            sum += 3;
-        }
+    for _ in 0..100000 {
+        c = a.clone();
+        c.scale_add_assign_aes(&b, binius_field::AESTowerField8b::from(0x55));
     }
     let elapsed = start.elapsed();
-    println!("feature detect avg: {:?}", elapsed / 1_000_000);
-    println!("sum = {}", sum);
+    println!("scale_add_assign avg: {:?}", elapsed / 100000);
+
+    // Test with different scalars
+    for scalar in [0x01u8, 0x02, 0x55, 0xFF] {
+        let start = std::time::Instant::now();
+        for _ in 0..100000 {
+            c = a.clone();
+            c.scale_add_assign_aes(&b, binius_field::AESTowerField8b::from(scalar));
+        }
+        let elapsed = start.elapsed();
+        println!(
+            "scale_add_assign scalar={:02x} avg: {:?}",
+            scalar,
+            elapsed / 100000
+        );
+    }
 }

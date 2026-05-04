@@ -34,7 +34,10 @@ impl Debug for RLNCConfig {
 
 macro_rules! bench_decode_one {
     ($group:ident, $data_len:literal, $pieces:literal, $ssize:literal) => {{
-        let config = RLNCConfig { data_byte_len: $data_len, piece_count: $pieces };
+        let config = RLNCConfig {
+            data_byte_len: $data_len,
+            piece_count: $pieces,
+        };
         let mut rng = rand::rng();
         let data: Vec<u8> = (0..$data_len).map(|_| rng.random()).collect();
         let mut encoder = RlnEncoder::<GF256, $ssize>::new();

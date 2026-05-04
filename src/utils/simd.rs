@@ -88,7 +88,10 @@ unsafe fn scale_add_assign_ssse3(dst: &mut [u8], src: &[u8], scalar: u8, tables:
             let prod_hi = _mm_shuffle_epi8(h_tbl, src_hi);
             let prod = _mm_xor_si128(prod_lo, prod_hi);
             let dst_vec = _mm_loadu_si128(dst.as_ptr().add(i + k * 16).cast());
-            _mm_storeu_si128(dst.as_mut_ptr().add(i + k * 16).cast(), _mm_xor_si128(dst_vec, prod));
+            _mm_storeu_si128(
+                dst.as_mut_ptr().add(i + k * 16).cast(),
+                _mm_xor_si128(dst_vec, prod),
+            );
         }
         i += 64;
     }
@@ -128,7 +131,10 @@ unsafe fn scale_ssse3(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
             let vec_hi = _mm_and_si128(_mm_srli_epi64(vec, 4), nibble_mask);
             let prod_lo = _mm_shuffle_epi8(l_tbl, vec_lo);
             let prod_hi = _mm_shuffle_epi8(h_tbl, vec_hi);
-            _mm_storeu_si128(dst.as_mut_ptr().add(i + k * 16).cast(), _mm_xor_si128(prod_lo, prod_hi));
+            _mm_storeu_si128(
+                dst.as_mut_ptr().add(i + k * 16).cast(),
+                _mm_xor_si128(prod_lo, prod_hi),
+            );
         }
         i += 64;
     }
@@ -138,7 +144,10 @@ unsafe fn scale_ssse3(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
         let vec_hi = _mm_and_si128(_mm_srli_epi64(vec, 4), nibble_mask);
         let prod_lo = _mm_shuffle_epi8(l_tbl, vec_lo);
         let prod_hi = _mm_shuffle_epi8(h_tbl, vec_hi);
-        _mm_storeu_si128(dst.as_mut_ptr().add(i).cast(), _mm_xor_si128(prod_lo, prod_hi));
+        _mm_storeu_si128(
+            dst.as_mut_ptr().add(i).cast(),
+            _mm_xor_si128(prod_lo, prod_hi),
+        );
         i += 16;
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
@@ -162,7 +171,10 @@ unsafe fn add_assign_avx2(dst: &mut [u8], src: &[u8]) {
         for k in 0..4 {
             let d = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
             let s = _mm256_loadu_si256(src.as_ptr().add(i + k * 32).cast());
-            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(d, s));
+            _mm256_storeu_si256(
+                dst.as_mut_ptr().add(i + k * 32).cast(),
+                _mm256_xor_si256(d, s),
+            );
         }
         i += 128;
     }
@@ -182,8 +194,11 @@ unsafe fn add_assign_avx2(dst: &mut [u8], src: &[u8]) {
 unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
     assert_eq!(dst.len(), src.len());
-    let l_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
-    let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
+    let l_tbl =
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
+    let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(
+        tables.high[scalar as usize].as_ptr().cast(),
+    ));
     let nibble_mask = _mm256_set1_epi8(0x0f);
 
     let n = dst.len();
@@ -197,7 +212,10 @@ unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8, tables: 
             let prod_hi = _mm256_shuffle_epi8(h_tbl, src_hi);
             let prod = _mm256_xor_si256(prod_lo, prod_hi);
             let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
-            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(dst_vec, prod));
+            _mm256_storeu_si256(
+                dst.as_mut_ptr().add(i + k * 32).cast(),
+                _mm256_xor_si256(dst_vec, prod),
+            );
         }
         i += 128;
     }
@@ -209,7 +227,10 @@ unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8, tables: 
         let prod_hi = _mm256_shuffle_epi8(h_tbl, src_hi);
         let prod = _mm256_xor_si256(prod_lo, prod_hi);
         let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
-        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(dst_vec, prod));
+        _mm256_storeu_si256(
+            dst.as_mut_ptr().add(i).cast(),
+            _mm256_xor_si256(dst_vec, prod),
+        );
         i += 32;
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
@@ -222,8 +243,11 @@ unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8, tables: 
 #[target_feature(enable = "avx2")]
 unsafe fn scale_avx2(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
-    let l_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
-    let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
+    let l_tbl =
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
+    let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(
+        tables.high[scalar as usize].as_ptr().cast(),
+    ));
     let nibble_mask = _mm256_set1_epi8(0x0f);
 
     let n = dst.len();
@@ -235,7 +259,10 @@ unsafe fn scale_avx2(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
             let vec_hi = _mm256_and_si256(_mm256_srli_epi64(vec, 4), nibble_mask);
             let prod_lo = _mm256_shuffle_epi8(l_tbl, vec_lo);
             let prod_hi = _mm256_shuffle_epi8(h_tbl, vec_hi);
-            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(prod_lo, prod_hi));
+            _mm256_storeu_si256(
+                dst.as_mut_ptr().add(i + k * 32).cast(),
+                _mm256_xor_si256(prod_lo, prod_hi),
+            );
         }
         i += 128;
     }
@@ -245,7 +272,10 @@ unsafe fn scale_avx2(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
         let vec_hi = _mm256_and_si256(_mm256_srli_epi64(vec, 4), nibble_mask);
         let prod_lo = _mm256_shuffle_epi8(l_tbl, vec_lo);
         let prod_hi = _mm256_shuffle_epi8(h_tbl, vec_hi);
-        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(prod_lo, prod_hi));
+        _mm256_storeu_si256(
+            dst.as_mut_ptr().add(i).cast(),
+            _mm256_xor_si256(prod_lo, prod_hi),
+        );
         i += 32;
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
@@ -269,7 +299,10 @@ unsafe fn add_assign_avx512(dst: &mut [u8], src: &[u8]) {
         for k in 0..4 {
             let d = _mm512_loadu_si512(dst.as_ptr().add(i + k * 64).cast());
             let s = _mm512_loadu_si512(src.as_ptr().add(i + k * 64).cast());
-            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), _mm512_xor_si512(d, s));
+            _mm512_storeu_si512(
+                dst.as_mut_ptr().add(i + k * 64).cast(),
+                _mm512_xor_si512(d, s),
+            );
         }
         i += 256;
     }
@@ -289,8 +322,11 @@ unsafe fn add_assign_avx512(dst: &mut [u8], src: &[u8]) {
 unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
     assert_eq!(dst.len(), src.len());
-    let l_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
-    let h_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
+    let l_tbl =
+        _mm512_broadcast_i32x4(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
+    let h_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(
+        tables.high[scalar as usize].as_ptr().cast(),
+    ));
     let nibble_mask = _mm512_set1_epi8(0x0f);
 
     let n = dst.len();
@@ -304,7 +340,10 @@ unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8, tables
             let prod_hi = _mm512_shuffle_epi8(h_tbl, src_hi);
             let prod = _mm512_xor_si512(prod_lo, prod_hi);
             let dst_vec = _mm512_loadu_si512(dst.as_ptr().add(i + k * 64).cast());
-            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), _mm512_xor_si512(dst_vec, prod));
+            _mm512_storeu_si512(
+                dst.as_mut_ptr().add(i + k * 64).cast(),
+                _mm512_xor_si512(dst_vec, prod),
+            );
         }
         i += 256;
     }
@@ -316,7 +355,10 @@ unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8, tables
         let prod_hi = _mm512_shuffle_epi8(h_tbl, src_hi);
         let prod = _mm512_xor_si512(prod_lo, prod_hi);
         let dst_vec = _mm512_loadu_si512(dst.as_ptr().add(i).cast());
-        _mm512_storeu_si512(dst.as_mut_ptr().add(i).cast(), _mm512_xor_si512(dst_vec, prod));
+        _mm512_storeu_si512(
+            dst.as_mut_ptr().add(i).cast(),
+            _mm512_xor_si512(dst_vec, prod),
+        );
         i += 64;
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
@@ -329,8 +371,11 @@ unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8, tables
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512vbmi")]
 unsafe fn scale_avx512(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
-    let l_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
-    let h_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
+    let l_tbl =
+        _mm512_broadcast_i32x4(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
+    let h_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(
+        tables.high[scalar as usize].as_ptr().cast(),
+    ));
     let nibble_mask = _mm512_set1_epi8(0x0f);
 
     let n = dst.len();
@@ -342,7 +387,10 @@ unsafe fn scale_avx512(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
             let vec_hi = _mm512_and_si512(_mm512_srli_epi64(vec, 4), nibble_mask);
             let prod_lo = _mm512_shuffle_epi8(l_tbl, vec_lo);
             let prod_hi = _mm512_shuffle_epi8(h_tbl, vec_hi);
-            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), _mm512_xor_si512(prod_lo, prod_hi));
+            _mm512_storeu_si512(
+                dst.as_mut_ptr().add(i + k * 64).cast(),
+                _mm512_xor_si512(prod_lo, prod_hi),
+            );
         }
         i += 256;
     }
@@ -352,7 +400,10 @@ unsafe fn scale_avx512(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
         let vec_hi = _mm512_and_si512(_mm512_srli_epi64(vec, 4), nibble_mask);
         let prod_lo = _mm512_shuffle_epi8(l_tbl, vec_lo);
         let prod_hi = _mm512_shuffle_epi8(h_tbl, vec_hi);
-        _mm512_storeu_si512(dst.as_mut_ptr().add(i).cast(), _mm512_xor_si512(prod_lo, prod_hi));
+        _mm512_storeu_si512(
+            dst.as_mut_ptr().add(i).cast(),
+            _mm512_xor_si512(prod_lo, prod_hi),
+        );
         i += 64;
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
@@ -409,7 +460,11 @@ unsafe fn scale_add_assign_gfni512(dst: &mut [u8], src: &[u8], scalar: u8) {
         _mm512_storeu_si512(d2.as_mut_ptr().cast(), _mm512_xor_si512(d2v, p2));
         _mm512_storeu_si512(d3.as_mut_ptr().cast(), _mm512_xor_si512(d3v, p3));
     }
-    for (d, s) in dst_iter.into_remainder().iter_mut().zip(src_iter.remainder().iter()) {
+    for (d, s) in dst_iter
+        .into_remainder()
+        .iter_mut()
+        .zip(src_iter.remainder().iter())
+    {
         let table = &super::mul_table::MUL_TABLE[scalar as usize];
         *d ^= table[*s as usize];
     }
@@ -459,7 +514,10 @@ unsafe fn scale_add_assign_gfni256(dst: &mut [u8], src: &[u8], scalar: u8) {
             let src_vec = _mm256_loadu_si256(src.as_ptr().add(i + k * 32).cast());
             let prod = _mm256_gf2p8mul_epi8(src_vec, scalar_vec);
             let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i + k * 32).cast());
-            _mm256_storeu_si256(dst.as_mut_ptr().add(i + k * 32).cast(), _mm256_xor_si256(dst_vec, prod));
+            _mm256_storeu_si256(
+                dst.as_mut_ptr().add(i + k * 32).cast(),
+                _mm256_xor_si256(dst_vec, prod),
+            );
         }
         i += 128;
     }
@@ -467,7 +525,10 @@ unsafe fn scale_add_assign_gfni256(dst: &mut [u8], src: &[u8], scalar: u8) {
         let src_vec = _mm256_loadu_si256(src.as_ptr().add(i).cast());
         let prod = _mm256_gf2p8mul_epi8(src_vec, scalar_vec);
         let dst_vec = _mm256_loadu_si256(dst.as_ptr().add(i).cast());
-        _mm256_storeu_si256(dst.as_mut_ptr().add(i).cast(), _mm256_xor_si256(dst_vec, prod));
+        _mm256_storeu_si256(
+            dst.as_mut_ptr().add(i).cast(),
+            _mm256_xor_si256(dst_vec, prod),
+        );
         i += 32;
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
@@ -516,7 +577,10 @@ unsafe fn scale_add_assign_gfni128(dst: &mut [u8], src: &[u8], scalar: u8) {
             let src_vec = _mm_loadu_si128(src.as_ptr().add(i + k * 16).cast());
             let prod = _mm_gf2p8mul_epi8(src_vec, scalar_vec);
             let dst_vec = _mm_loadu_si128(dst.as_ptr().add(i + k * 16).cast());
-            _mm_storeu_si128(dst.as_mut_ptr().add(i + k * 16).cast(), _mm_xor_si128(dst_vec, prod));
+            _mm_storeu_si128(
+                dst.as_mut_ptr().add(i + k * 16).cast(),
+                _mm_xor_si128(dst_vec, prod),
+            );
         }
         i += 64;
     }
