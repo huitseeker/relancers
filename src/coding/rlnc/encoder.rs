@@ -292,6 +292,7 @@ where
         Ok(result)
     }
 
+    #[inline]
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);

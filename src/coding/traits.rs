@@ -64,6 +64,7 @@ pub trait Encoder<F: BiniusField, const M: usize> {
     ) -> Result<crate::storage::Symbol<M>, CodingError>;
 
     /// Generate a coded packet with coefficients
+    #[inline]
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError>;
 
     /// Get the number of source symbols
