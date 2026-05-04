@@ -1,8 +1,8 @@
-use binius_field::Field as BiniusField;
+use binius_field::{AESTowerField8b, Field as BiniusField};
 use std::ops::{Index, IndexMut};
 
 /// A symbol is a fixed-size chunk of data in a network coding context
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Symbol<const M: usize> {
     data: [u8; M],
@@ -51,9 +51,7 @@ impl<const M: usize> Symbol<M> {
 
     /// Add another symbol to this one (element-wise XOR for GF(256))
     pub fn add_assign(&mut self, other: &Self) {
-        for (a, b) in self.data.iter_mut().zip(other.data.iter()) {
-            *a ^= *b;
-        }
+        crate::utils::simd::add_assign_simd(&mut self.data, &other.data);
     }
 
     /// Scale this symbol by a field element
@@ -64,21 +62,15 @@ impl<const M: usize> Symbol<M> {
         if scalar.is_zero() {
             self.data = [0u8; M];
         } else if scalar != F::ONE {
-            #[inline(always)]
-            fn scale_byte<F>(byte: &mut u8, scalar: F)
-            where
-                F: BiniusField + From<u8> + Into<u8>,
-            {
-                if *byte == 0 {
-                    return;
+            // Fast path for AESTowerField8b using precomputed multiplication table.
+            if std::any::TypeId::of::<F>() == std::any::TypeId::of::<AESTowerField8b>() {
+                let s: u8 = unsafe { std::mem::transmute_copy(&scalar) };
+                crate::utils::simd::scale_simd(&mut self.data, s);
+            } else {
+                for byte in &mut self.data {
+                    let field_byte = F::from(*byte);
+                    *byte = (field_byte * scalar).into();
                 }
-                let field_byte = F::from(*byte);
-                let scaled = field_byte * scalar;
-                *byte = scaled.into();
-            }
-
-            for byte in &mut self.data {
-                scale_byte(byte, scalar);
             }
         }
     }
@@ -88,7 +80,7 @@ impl<const M: usize> Symbol<M> {
     where
         F: BiniusField + From<u8> + Into<u8>,
     {
-        let mut result = self.clone();
+        let mut result = *self;
         result.scale(scalar);
         result
     }
@@ -109,6 +101,20 @@ impl<const M: usize> Symbol<M> {
     /// Create a symbol filled with a specific value
     pub fn filled(value: u8) -> Self {
         Self { data: [value; M] }
+    }
+
+    /// Add `other * scalar` to this symbol in-place (i.e. `self += other * scalar`).
+    /// Uses the precomputed multiplication table for AESTowerField8b.
+    pub fn scale_add_assign_aes(&mut self, other: &Self, scalar: AESTowerField8b) {
+        if scalar.is_zero() {
+            return;
+        }
+        if scalar == AESTowerField8b::ONE {
+            self.add_assign(other);
+            return;
+        }
+        let s: u8 = unsafe { std::mem::transmute_copy(&scalar) };
+        crate::utils::simd::scale_add_assign_simd(&mut self.data, &other.data, s);
     }
 }
 

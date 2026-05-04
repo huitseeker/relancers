@@ -28,6 +28,13 @@ impl CodingRng {
     where
         F: BiniusField,
     {
+        // Fast path for AESTowerField8b: all bytes are valid field elements.
+        if std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>() {
+            let mut bytes = vec![0u8; count];
+            use rand::Rng;
+            self.rng.fill(&mut bytes[..]);
+            return unsafe { std::mem::transmute::<Vec<u8>, Vec<F>>(bytes) };
+        }
         let mut res = Vec::with_capacity(count);
         for _ in 0..count {
             res.push(F::random(&mut self.rng));

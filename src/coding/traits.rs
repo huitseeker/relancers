@@ -113,7 +113,7 @@ pub trait StreamingDecoder<F: BiniusField, const M: usize>: Decoder<F, M> {
     ) -> Result<Option<crate::storage::Symbol<M>>, CodingError>;
 
     /// Check if new coefficients would increase the matrix rank
-    fn check_rank_increase(&self, coefficients: &[F]) -> bool;
+    fn check_rank_increase(&mut self, coefficients: &[F]) -> bool;
 
     /// Get the current decoding progress as a fraction
     fn progress(&self) -> f64 {

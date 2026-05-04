@@ -1242,6 +1242,7 @@ dependencies = [
  "binius_core",
  "binius_field",
  "binius_maybe_rayon",
+ "bytemuck",
  "criterion",
  "enum_dispatch",
  "once_cell",

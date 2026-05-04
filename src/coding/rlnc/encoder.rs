@@ -18,6 +18,8 @@ pub struct RlnEncoder<F: BiniusField, const M: usize> {
     sparsity_config: Option<SparseConfig>,
     /// Configured coefficient generator
     coeff_generator: OnceCell<ConfiguredCoeffGenerator<F>>,
+    /// Cached flag: true when F is AESTowerField8b
+    is_aes: bool,
 }
 
 impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
@@ -29,6 +31,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             current_seed: [0u8; 32],
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
+            is_aes: false,
         }
     }
 
@@ -70,6 +73,7 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
             current_seed: seed,
             sparsity_config: None,
             coeff_generator: OnceCell::new(),
+            is_aes: false,
         }
     }
 
@@ -205,6 +209,8 @@ impl<F: BiniusField, const M: usize> RlnEncoder<F, M> {
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.is_aes =
+            std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         // Set sparsity if provided
         match sparsity {
@@ -234,6 +240,8 @@ where
         self.symbols = symbols;
         self.data.clear();
         self.data.reserve(symbols);
+        self.is_aes =
+            std::any::TypeId::of::<F>() == std::any::TypeId::of::<binius_field::AESTowerField8b>();
 
         Ok(())
     }
@@ -258,36 +266,33 @@ where
             return Err(CodingError::NoDataSet);
         }
 
-        // Use optimized encoding with specialized conversion paths
-        #[inline(always)]
-        fn encode_byte<F, const M: usize>(
-            coefficients: &[F],
-            symbols: &[Symbol<M>],
-            byte_idx: usize,
-        ) -> u8
-        where
-            F: BiniusField + From<u8> + Into<u8>,
-        {
-            let mut byte_sum = F::ZERO;
-            for (coeff, symbol) in coefficients.iter().zip(symbols.iter()) {
+        let mut result = Symbol::<M>::zero();
+        // Fast path for AESTowerField8b using precomputed multiplication table.
+        if self.is_aes {
+            let result_data = result.data_mut();
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
+                // Branchless: always call unchecked SIMD. For s==0 the result is
+                // dst ^= src * 0 == dst (no-op), but we avoid branch mispredictions.
+                // For s==1 the result is dst ^= src, same as add_assign.
+                crate::utils::simd::scale_add_assign_simd_unchecked(
+                    result_data,
+                    symbol.as_slice(),
+                    s,
+                );
+            }
+        } else {
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
                 if !coeff.is_zero() {
-                    let byte = symbol.as_slice()[byte_idx];
-                    if byte != 0 {
-                        let field_byte = F::from(byte);
-                        byte_sum += *coeff * field_byte;
-                    }
+                    let scaled = symbol.scaled(*coeff);
+                    result.add_assign(&scaled);
                 }
             }
-            byte_sum.into()
         }
-
-        let mut result = [0u8; M];
-        for byte_idx in 0..M {
-            result[byte_idx] = encode_byte(coefficients, &self.data, byte_idx);
-        }
-        Ok(Symbol::from_data(result))
+        Ok(result)
     }
 
+    #[inline]
     fn encode_packet(&mut self) -> Result<(Vec<F>, crate::storage::Symbol<M>), CodingError> {
         if self.symbols == 0 {
             return Err(CodingError::NotConfigured);
