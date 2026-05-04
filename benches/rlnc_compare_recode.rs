@@ -27,7 +27,7 @@ impl Debug for RecodeConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!(
             "{}/{}-pieces/{}-pieces",
-            &bytes_to_human_readable(self.data_byte_len),
+            bytes_to_human_readable(self.data_byte_len),
             self.piece_count,
             self.recoding_with_piece_count
         ))
