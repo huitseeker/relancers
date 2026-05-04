@@ -271,13 +271,14 @@ where
         if self.is_aes {
             let coeffs_u8: &[binius_field::AESTowerField8b] =
                 unsafe { std::mem::transmute(coefficients) };
+            let result_data = result.data_mut();
             for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
                 let s: u8 = unsafe { *(coeff as *const _ as *const u8) };
                 // Branchless: always call unchecked SIMD. For s==0 the result is
                 // dst ^= src * 0 == dst (no-op), but we avoid branch mispredictions.
                 // For s==1 the result is dst ^= src, same as add_assign.
                 crate::utils::simd::scale_add_assign_simd_unchecked(
-                    result.data_mut(),
+                    result_data,
                     symbol.as_slice(),
                     s,
                 );

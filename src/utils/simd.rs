@@ -372,27 +372,46 @@ unsafe fn scale_add_assign_gfni512(dst: &mut [u8], src: &[u8], scalar: u8) {
     use std::arch::x86_64::*;
     assert_eq!(dst.len(), src.len());
     let scalar_vec = _mm512_set1_epi8(scalar as i8);
-    let n = dst.len();
-    let mut i = 0;
-    while i + 256 <= n {
-        for k in 0..4 {
-            let src_vec = _mm512_loadu_si512(src.as_ptr().add(i + k * 64).cast());
-            let prod = _mm512_gf2p8mul_epi8(src_vec, scalar_vec);
-            let dst_vec = _mm512_loadu_si512(dst.as_ptr().add(i + k * 64).cast());
-            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), _mm512_xor_si512(dst_vec, prod));
-        }
-        i += 256;
+    const CHUNK: usize = 256;
+
+    let mut dst_iter = dst.chunks_exact_mut(CHUNK);
+    let mut src_iter = src.chunks_exact(CHUNK);
+    for (dst_chunk, src_chunk) in dst_iter.by_ref().zip(src_iter.by_ref()) {
+        let (s0, s1, s2, s3) = {
+            let (c0, rest) = src_chunk.split_at_unchecked(64);
+            let (c1, rest) = rest.split_at_unchecked(64);
+            let (c2, c3) = rest.split_at_unchecked(64);
+            (c0, c1, c2, c3)
+        };
+        let s0v = _mm512_loadu_si512(s0.as_ptr().cast());
+        let s1v = _mm512_loadu_si512(s1.as_ptr().cast());
+        let s2v = _mm512_loadu_si512(s2.as_ptr().cast());
+        let s3v = _mm512_loadu_si512(s3.as_ptr().cast());
+
+        let p0 = _mm512_gf2p8mul_epi8(s0v, scalar_vec);
+        let p1 = _mm512_gf2p8mul_epi8(s1v, scalar_vec);
+        let p2 = _mm512_gf2p8mul_epi8(s2v, scalar_vec);
+        let p3 = _mm512_gf2p8mul_epi8(s3v, scalar_vec);
+
+        let (d0, d1, d2, d3) = {
+            let (c0, rest) = dst_chunk.split_at_mut_unchecked(64);
+            let (c1, rest) = rest.split_at_mut_unchecked(64);
+            let (c2, c3) = rest.split_at_mut_unchecked(64);
+            (c0, c1, c2, c3)
+        };
+        let d0v = _mm512_loadu_si512(d0.as_ptr().cast());
+        let d1v = _mm512_loadu_si512(d1.as_ptr().cast());
+        let d2v = _mm512_loadu_si512(d2.as_ptr().cast());
+        let d3v = _mm512_loadu_si512(d3.as_ptr().cast());
+
+        _mm512_storeu_si512(d0.as_mut_ptr().cast(), _mm512_xor_si512(d0v, p0));
+        _mm512_storeu_si512(d1.as_mut_ptr().cast(), _mm512_xor_si512(d1v, p1));
+        _mm512_storeu_si512(d2.as_mut_ptr().cast(), _mm512_xor_si512(d2v, p2));
+        _mm512_storeu_si512(d3.as_mut_ptr().cast(), _mm512_xor_si512(d3v, p3));
     }
-    while i + 64 <= n {
-        let src_vec = _mm512_loadu_si512(src.as_ptr().add(i).cast());
-        let prod = _mm512_gf2p8mul_epi8(src_vec, scalar_vec);
-        let dst_vec = _mm512_loadu_si512(dst.as_ptr().add(i).cast());
-        _mm512_storeu_si512(dst.as_mut_ptr().add(i).cast(), _mm512_xor_si512(dst_vec, prod));
-        i += 64;
-    }
-    let table = &super::mul_table::MUL_TABLE[scalar as usize];
-    for j in i..n {
-        dst[j] ^= table[src[j] as usize];
+    for (d, s) in dst_iter.into_remainder().iter_mut().zip(src_iter.remainder().iter()) {
+        let table = &super::mul_table::MUL_TABLE[scalar as usize];
+        *d ^= table[*s as usize];
     }
 }
 
@@ -401,25 +420,29 @@ unsafe fn scale_add_assign_gfni512(dst: &mut [u8], src: &[u8], scalar: u8) {
 unsafe fn scale_gfni512(dst: &mut [u8], scalar: u8) {
     use std::arch::x86_64::*;
     let scalar_vec = _mm512_set1_epi8(scalar as i8);
-    let n = dst.len();
-    let mut i = 0;
-    while i + 256 <= n {
-        for k in 0..4 {
-            let vec = _mm512_loadu_si512(dst.as_ptr().add(i + k * 64).cast());
-            let prod = _mm512_gf2p8mul_epi8(vec, scalar_vec);
-            _mm512_storeu_si512(dst.as_mut_ptr().add(i + k * 64).cast(), prod);
-        }
-        i += 256;
-    }
-    while i + 64 <= n {
-        let vec = _mm512_loadu_si512(dst.as_ptr().add(i).cast());
-        let prod = _mm512_gf2p8mul_epi8(vec, scalar_vec);
-        _mm512_storeu_si512(dst.as_mut_ptr().add(i).cast(), prod);
-        i += 64;
+    const CHUNK: usize = 256;
+
+    let mut iter = dst.chunks_exact_mut(CHUNK);
+    for chunk in iter.by_ref() {
+        let (c0, c1, c2, c3) = {
+            let (c0, rest) = chunk.split_at_mut_unchecked(64);
+            let (c1, rest) = rest.split_at_mut_unchecked(64);
+            let (c2, c3) = rest.split_at_mut_unchecked(64);
+            (c0, c1, c2, c3)
+        };
+        let v0 = _mm512_loadu_si512(c0.as_ptr().cast());
+        let v1 = _mm512_loadu_si512(c1.as_ptr().cast());
+        let v2 = _mm512_loadu_si512(c2.as_ptr().cast());
+        let v3 = _mm512_loadu_si512(c3.as_ptr().cast());
+
+        _mm512_storeu_si512(c0.as_mut_ptr().cast(), _mm512_gf2p8mul_epi8(v0, scalar_vec));
+        _mm512_storeu_si512(c1.as_mut_ptr().cast(), _mm512_gf2p8mul_epi8(v1, scalar_vec));
+        _mm512_storeu_si512(c2.as_mut_ptr().cast(), _mm512_gf2p8mul_epi8(v2, scalar_vec));
+        _mm512_storeu_si512(c3.as_mut_ptr().cast(), _mm512_gf2p8mul_epi8(v3, scalar_vec));
     }
     let table = &super::mul_table::MUL_TABLE[scalar as usize];
-    for j in i..n {
-        dst[j] = table[dst[j] as usize];
+    for d in iter.into_remainder() {
+        *d = table[*d as usize];
     }
 }
 
