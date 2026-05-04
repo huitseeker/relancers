@@ -7,13 +7,13 @@ fn main() {
 
     // Warmup
     for _ in 0..1000 {
-        c = a.clone();
+        c = a;
         c.scale_add_assign_aes(&b, binius_field::AESTowerField8b::from(0x55));
     }
 
     let start = std::time::Instant::now();
     for _ in 0..100000 {
-        c = a.clone();
+        c = a;
         c.scale_add_assign_aes(&b, binius_field::AESTowerField8b::from(0x55));
     }
     let elapsed = start.elapsed();
@@ -23,7 +23,7 @@ fn main() {
     for scalar in [0x01u8, 0x02, 0x55, 0xFF] {
         let start = std::time::Instant::now();
         for _ in 0..100000 {
-            c = a.clone();
+            c = a;
             c.scale_add_assign_aes(&b, binius_field::AESTowerField8b::from(scalar));
         }
         let elapsed = start.elapsed();
@@ -33,4 +33,7 @@ fn main() {
             elapsed / 100000
         );
     }
+
+    // Prevent `c` from being optimized away
+    std::hint::black_box(c);
 }
