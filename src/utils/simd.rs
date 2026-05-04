@@ -68,10 +68,9 @@ unsafe fn add_assign_ssse3(dst: &mut [u8], src: &[u8]) {
 /// `dst += src * scalar` using split-table SSSE3.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "ssse3")]
-unsafe fn scale_add_assign_ssse3(dst: &mut [u8], src: &[u8], scalar: u8) {
+unsafe fn scale_add_assign_ssse3(dst: &mut [u8], src: &[u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
     assert_eq!(dst.len(), src.len());
-    let tables = get_tables();
     let l_tbl = _mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast());
     let h_tbl = _mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast());
     let nibble_mask = _mm_set1_epi8(0x0f);
@@ -113,9 +112,8 @@ unsafe fn scale_add_assign_ssse3(dst: &mut [u8], src: &[u8], scalar: u8) {
 /// `dst *= scalar` using split-table SSSE3.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "ssse3")]
-unsafe fn scale_ssse3(dst: &mut [u8], scalar: u8) {
+unsafe fn scale_ssse3(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
-    let tables = get_tables();
     let l_tbl = _mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast());
     let h_tbl = _mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast());
     let nibble_mask = _mm_set1_epi8(0x0f);
@@ -180,10 +178,9 @@ unsafe fn add_assign_avx2(dst: &mut [u8], src: &[u8]) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8) {
+unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
     assert_eq!(dst.len(), src.len());
-    let tables = get_tables();
     let l_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
     let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
     let nibble_mask = _mm256_set1_epi8(0x0f);
@@ -222,9 +219,8 @@ unsafe fn scale_add_assign_avx2(dst: &mut [u8], src: &[u8], scalar: u8) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-unsafe fn scale_avx2(dst: &mut [u8], scalar: u8) {
+unsafe fn scale_avx2(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
-    let tables = get_tables();
     let l_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
     let h_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
     let nibble_mask = _mm256_set1_epi8(0x0f);
@@ -289,10 +285,9 @@ unsafe fn add_assign_avx512(dst: &mut [u8], src: &[u8]) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512vbmi")]
-unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8) {
+unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
     assert_eq!(dst.len(), src.len());
-    let tables = get_tables();
     let l_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
     let h_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
     let nibble_mask = _mm512_set1_epi8(0x0f);
@@ -331,9 +326,8 @@ unsafe fn scale_add_assign_avx512(dst: &mut [u8], src: &[u8], scalar: u8) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512vbmi")]
-unsafe fn scale_avx512(dst: &mut [u8], scalar: u8) {
+unsafe fn scale_avx512(dst: &mut [u8], scalar: u8, tables: &SimdMulTables) {
     use std::arch::x86_64::*;
-    let tables = get_tables();
     let l_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.low[scalar as usize].as_ptr().cast()));
     let h_tbl = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.high[scalar as usize].as_ptr().cast()));
     let nibble_mask = _mm512_set1_epi8(0x0f);
@@ -373,19 +367,20 @@ unsafe fn scale_avx512(dst: &mut [u8], scalar: u8) {
 /// Unchecked `scale_simd`. Caller must ensure `scalar != 0` and `scalar != 1`.
 #[inline]
 pub fn scale_simd_unchecked(dst: &mut [u8], scalar: u8) {
+    let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
-        unsafe { scale_avx512(dst, scalar) };
+        unsafe { scale_avx512(dst, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx2") {
-        unsafe { scale_avx2(dst, scalar) };
+        unsafe { scale_avx2(dst, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("ssse3") {
-        unsafe { scale_ssse3(dst, scalar) };
+        unsafe { scale_ssse3(dst, scalar, tables) };
         return;
     }
     // Fallback
@@ -411,19 +406,20 @@ pub fn scale_simd_unchecked(dst: &mut [u8], scalar: u8) {
 /// Unchecked `scale_add_assign_simd`. Caller must ensure `scalar != 0` and `scalar != 1`.
 #[inline]
 pub fn scale_add_assign_simd_unchecked(dst: &mut [u8], src: &[u8], scalar: u8) {
+    let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
-        unsafe { scale_add_assign_avx512(dst, src, scalar) };
+        unsafe { scale_add_assign_avx512(dst, src, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx2") {
-        unsafe { scale_add_assign_avx2(dst, src, scalar) };
+        unsafe { scale_add_assign_avx2(dst, src, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("ssse3") {
-        unsafe { scale_add_assign_ssse3(dst, src, scalar) };
+        unsafe { scale_add_assign_ssse3(dst, src, scalar, tables) };
         return;
     }
     // Fallback
@@ -491,19 +487,20 @@ pub fn scale_add_assign_simd(dst: &mut [u8], src: &[u8], scalar: u8) {
         add_assign_simd(dst, src);
         return;
     }
+    let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
-        unsafe { scale_add_assign_avx512(dst, src, scalar) };
+        unsafe { scale_add_assign_avx512(dst, src, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx2") {
-        unsafe { scale_add_assign_avx2(dst, src, scalar) };
+        unsafe { scale_add_assign_avx2(dst, src, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("ssse3") {
-        unsafe { scale_add_assign_ssse3(dst, src, scalar) };
+        unsafe { scale_add_assign_ssse3(dst, src, scalar, tables) };
         return;
     }
     // Fallback
@@ -535,19 +532,20 @@ pub fn scale_simd(dst: &mut [u8], scalar: u8) {
     if scalar == 1 {
         return;
     }
+    let tables = get_tables();
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx512vbmi") {
-        unsafe { scale_avx512(dst, scalar) };
+        unsafe { scale_avx512(dst, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("avx2") {
-        unsafe { scale_avx2(dst, scalar) };
+        unsafe { scale_avx2(dst, scalar, tables) };
         return;
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("ssse3") {
-        unsafe { scale_ssse3(dst, scalar) };
+        unsafe { scale_ssse3(dst, scalar, tables) };
         return;
     }
     // Fallback
