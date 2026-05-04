@@ -272,7 +272,7 @@ where
             let coeffs_u8: &[binius_field::AESTowerField8b] =
                 unsafe { std::mem::transmute(coefficients) };
             for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
-                let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
+                let s: u8 = unsafe { *(coeff as *const _ as *const u8) };
                 if s != 0 {
                     if s == 1 {
                         result.add_assign(symbol);
