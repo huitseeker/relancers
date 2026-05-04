@@ -269,11 +269,9 @@ where
         let mut result = Symbol::<M>::zero();
         // Fast path for AESTowerField8b using precomputed multiplication table.
         if self.is_aes {
-            let coeffs_u8: &[binius_field::AESTowerField8b] =
-                unsafe { std::mem::transmute(coefficients) };
             let result_data = result.data_mut();
-            for (coeff, symbol) in coeffs_u8.iter().zip(self.data.iter()) {
-                let s: u8 = unsafe { *(coeff as *const _ as *const u8) };
+            for (coeff, symbol) in coefficients.iter().zip(self.data.iter()) {
+                let s: u8 = unsafe { std::mem::transmute_copy(coeff) };
                 // Branchless: always call unchecked SIMD. For s==0 the result is
                 // dst ^= src * 0 == dst (no-op), but we avoid branch mispredictions.
                 // For s==1 the result is dst ^= src, same as add_assign.
