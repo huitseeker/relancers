@@ -2,6 +2,7 @@
 name = "relancers"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89"
 authors = ["François Garillot <francois@garillot.net>"]
 description = "Random Linear Network Coding (RLNC) for Rust"
 repository = "https://github.com/huitseeker/relancers"
