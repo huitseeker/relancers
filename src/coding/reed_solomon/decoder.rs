@@ -141,6 +141,12 @@ where
         self.coefficients.clear();
         self.decoded_symbols.clear();
 
+        // Reserve capacity to reduce repeated reallocations when many symbols are added.
+        // This is a low-risk performance improvement for typical decode flows.
+        self.received_symbols.reserve(symbols);
+        self.coefficients.reserve(symbols);
+        self.decoded_symbols.reserve(symbols);
+
         Ok(())
     }
 
