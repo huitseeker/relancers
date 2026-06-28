@@ -4,10 +4,6 @@
 
 High-performance Random Linear Network Coding (RLNC) for Rust, powered by [Binius](https://github.com/IrreducibleOSS/binius) with AVX-512 acceleration.
 
-[![Crates.io](https://img.shields.io/crates/v/relancers.svg)](https://crates.io/crates/relancers)
-[![Docs.rs](https://img.shields.io/docsrs/relancers)](https://docs.rs/relancers)
-[![License](https://img.shields.io/crates/l/relancers.svg)](#license)
-
 ## Performance
 
 **Relancers** leverages [Binius](https://github.com/IrreducibleOSS/binius) for cutting-edge finite field arithmetic with **AVX-512 acceleration**. For optimal performance:
